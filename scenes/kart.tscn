@@ -1,0 +1,279 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/kart.gd" id="1_kart"]
+
+[sub_resource type="PhysicsMaterial" id="PhysMat_ball"]
+friction = 0.0
+bounce = 0.0
+
+[sub_resource type="SphereShape3D" id="Shape_ball"]
+radius = 0.5
+
+[sub_resource type="StandardMaterial3D" id="Mat_body"]
+albedo_color = Color(0.9, 0.2, 0.2, 1)
+roughness = 0.55
+
+[sub_resource type="StandardMaterial3D" id="Mat_dark"]
+albedo_color = Color(0.16, 0.16, 0.19, 1)
+roughness = 0.8
+
+[sub_resource type="StandardMaterial3D" id="Mat_tire"]
+albedo_color = Color(0.08, 0.08, 0.09, 1)
+roughness = 0.95
+
+[sub_resource type="StandardMaterial3D" id="Mat_rim"]
+albedo_color = Color(0.85, 0.85, 0.8, 1)
+metallic = 0.6
+roughness = 0.35
+
+[sub_resource type="StandardMaterial3D" id="Mat_suit"]
+albedo_color = Color(0.95, 0.95, 0.95, 1)
+roughness = 0.7
+
+[sub_resource type="StandardMaterial3D" id="Mat_visor"]
+albedo_color = Color(0.05, 0.07, 0.12, 1)
+metallic = 0.4
+roughness = 0.1
+
+[sub_resource type="BoxMesh" id="Mesh_chassis"]
+material = SubResource("Mat_body")
+size = Vector3(1.25, 0.24, 1.9)
+
+[sub_resource type="BoxMesh" id="Mesh_nose"]
+material = SubResource("Mat_body")
+size = Vector3(0.95, 0.2, 0.5)
+
+[sub_resource type="BoxMesh" id="Mesh_bumper"]
+material = SubResource("Mat_dark")
+size = Vector3(1.35, 0.14, 0.18)
+
+[sub_resource type="BoxMesh" id="Mesh_engine"]
+material = SubResource("Mat_dark")
+size = Vector3(0.8, 0.34, 0.45)
+
+[sub_resource type="BoxMesh" id="Mesh_seat"]
+material = SubResource("Mat_dark")
+size = Vector3(0.7, 0.55, 0.14)
+
+[sub_resource type="BoxMesh" id="Mesh_spoiler"]
+material = SubResource("Mat_body")
+size = Vector3(1.35, 0.06, 0.35)
+
+[sub_resource type="BoxMesh" id="Mesh_strut"]
+material = SubResource("Mat_dark")
+size = Vector3(0.06, 0.32, 0.12)
+
+[sub_resource type="CylinderMesh" id="Mesh_exhaust"]
+material = SubResource("Mat_rim")
+top_radius = 0.07
+bottom_radius = 0.07
+height = 0.35
+radial_segments = 6
+rings = 1
+
+[sub_resource type="CylinderMesh" id="Mesh_wheel_rear"]
+material = SubResource("Mat_tire")
+top_radius = 0.32
+bottom_radius = 0.32
+height = 0.34
+radial_segments = 10
+rings = 1
+
+[sub_resource type="CylinderMesh" id="Mesh_wheel_front"]
+material = SubResource("Mat_tire")
+top_radius = 0.27
+bottom_radius = 0.27
+height = 0.26
+radial_segments = 10
+rings = 1
+
+[sub_resource type="BoxMesh" id="Mesh_rim_marker"]
+material = SubResource("Mat_rim")
+size = Vector3(0.36, 0.1, 0.1)
+
+[sub_resource type="CapsuleMesh" id="Mesh_torso"]
+material = SubResource("Mat_suit")
+radius = 0.24
+height = 0.7
+radial_segments = 8
+rings = 2
+
+[sub_resource type="SphereMesh" id="Mesh_head"]
+material = SubResource("Mat_body")
+radius = 0.26
+height = 0.52
+radial_segments = 10
+rings = 5
+
+[sub_resource type="BoxMesh" id="Mesh_visor"]
+material = SubResource("Mat_visor")
+size = Vector3(0.36, 0.14, 0.12)
+
+[sub_resource type="TorusMesh" id="Mesh_steering"]
+material = SubResource("Mat_dark")
+inner_radius = 0.1
+outer_radius = 0.15
+rings = 10
+ring_segments = 4
+
+[sub_resource type="SceneReplicationConfig" id="Repl_kart"]
+properties/0/path = NodePath(".:sync_pos")
+properties/0/spawn = false
+properties/0/replication_mode = 1
+properties/1/path = NodePath(".:sync_vel")
+properties/1/spawn = false
+properties/1/replication_mode = 1
+properties/2/path = NodePath(".:sync_heading")
+properties/2/spawn = false
+properties/2/replication_mode = 1
+properties/3/path = NodePath(".:sync_state")
+properties/3/spawn = false
+properties/3/replication_mode = 1
+properties/4/path = NodePath(".:sync_hops")
+properties/4/spawn = false
+properties/4/replication_mode = 2
+
+[node name="Kart" type="Node3D"]
+script = ExtResource("1_kart")
+
+[node name="Ball" type="RigidBody3D" parent="."]
+top_level = true
+collision_layer = 2
+collision_mask = 7
+mass = 4.0
+physics_material_override = SubResource("PhysMat_ball")
+gravity_scale = 2.6
+can_sleep = false
+continuous_cd = true
+axis_lock_angular_x = true
+axis_lock_angular_y = true
+axis_lock_angular_z = true
+
+[node name="Shape" type="CollisionShape3D" parent="Ball"]
+shape = SubResource("Shape_ball")
+
+[node name="Visual" type="Node3D" parent="."]
+top_level = true
+physics_interpolation_mode = 2
+
+[node name="Tilt" type="Node3D" parent="Visual"]
+
+[node name="Squash" type="Node3D" parent="Visual/Tilt"]
+
+[node name="Chassis" type="MeshInstance3D" parent="Visual/Tilt/Squash"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.34, 0)
+mesh = SubResource("Mesh_chassis")
+
+[node name="Nose" type="MeshInstance3D" parent="Visual/Tilt/Squash"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.36, -1.15)
+mesh = SubResource("Mesh_nose")
+
+[node name="Bumper" type="MeshInstance3D" parent="Visual/Tilt/Squash"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, -1.42)
+mesh = SubResource("Mesh_bumper")
+
+[node name="Engine" type="MeshInstance3D" parent="Visual/Tilt/Squash"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.6, 0.78)
+mesh = SubResource("Mesh_engine")
+
+[node name="ExhaustL" type="MeshInstance3D" parent="Visual/Tilt/Squash"]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, -0.22, 0.62, 1.08)
+mesh = SubResource("Mesh_exhaust")
+
+[node name="ExhaustR" type="MeshInstance3D" parent="Visual/Tilt/Squash"]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 0.22, 0.62, 1.08)
+mesh = SubResource("Mesh_exhaust")
+
+[node name="Seat" type="MeshInstance3D" parent="Visual/Tilt/Squash"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.7, 0.45)
+mesh = SubResource("Mesh_seat")
+
+[node name="Spoiler" type="MeshInstance3D" parent="Visual/Tilt/Squash"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.0, 1.0)
+mesh = SubResource("Mesh_spoiler")
+
+[node name="StrutL" type="MeshInstance3D" parent="Visual/Tilt/Squash"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.4, 0.82, 1.0)
+mesh = SubResource("Mesh_strut")
+
+[node name="StrutR" type="MeshInstance3D" parent="Visual/Tilt/Squash"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.4, 0.82, 1.0)
+mesh = SubResource("Mesh_strut")
+
+[node name="SteeringWheel" type="MeshInstance3D" parent="Visual/Tilt/Squash"]
+transform = Transform3D(1, 0, 0, 0, 0.5, -0.866, 0, 0.866, 0.5, 0, 0.78, -0.28)
+mesh = SubResource("Mesh_steering")
+
+[node name="WheelRL" type="Node3D" parent="Visual/Tilt/Squash"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.74, 0.32, 0.7)
+
+[node name="Tire" type="MeshInstance3D" parent="Visual/Tilt/Squash/WheelRL"]
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0)
+mesh = SubResource("Mesh_wheel_rear")
+
+[node name="Rim" type="MeshInstance3D" parent="Visual/Tilt/Squash/WheelRL"]
+mesh = SubResource("Mesh_rim_marker")
+
+[node name="WheelRR" type="Node3D" parent="Visual/Tilt/Squash"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.74, 0.32, 0.7)
+
+[node name="Tire" type="MeshInstance3D" parent="Visual/Tilt/Squash/WheelRR"]
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0)
+mesh = SubResource("Mesh_wheel_rear")
+
+[node name="Rim" type="MeshInstance3D" parent="Visual/Tilt/Squash/WheelRR"]
+mesh = SubResource("Mesh_rim_marker")
+
+[node name="SteerFL" type="Node3D" parent="Visual/Tilt/Squash"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.68, 0.27, -0.78)
+
+[node name="WheelFL" type="Node3D" parent="Visual/Tilt/Squash/SteerFL"]
+
+[node name="Tire" type="MeshInstance3D" parent="Visual/Tilt/Squash/SteerFL/WheelFL"]
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0)
+mesh = SubResource("Mesh_wheel_front")
+
+[node name="Rim" type="MeshInstance3D" parent="Visual/Tilt/Squash/SteerFL/WheelFL"]
+mesh = SubResource("Mesh_rim_marker")
+
+[node name="SteerFR" type="Node3D" parent="Visual/Tilt/Squash"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.68, 0.27, -0.78)
+
+[node name="WheelFR" type="Node3D" parent="Visual/Tilt/Squash/SteerFR"]
+
+[node name="Tire" type="MeshInstance3D" parent="Visual/Tilt/Squash/SteerFR/WheelFR"]
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0)
+mesh = SubResource("Mesh_wheel_front")
+
+[node name="Rim" type="MeshInstance3D" parent="Visual/Tilt/Squash/SteerFR/WheelFR"]
+mesh = SubResource("Mesh_rim_marker")
+
+[node name="Driver" type="Node3D" parent="Visual/Tilt/Squash"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0.15)
+
+[node name="Torso" type="MeshInstance3D" parent="Visual/Tilt/Squash/Driver"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, 0)
+mesh = SubResource("Mesh_torso")
+
+[node name="Head" type="MeshInstance3D" parent="Visual/Tilt/Squash/Driver"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.82, -0.02)
+mesh = SubResource("Mesh_head")
+
+[node name="Visor" type="MeshInstance3D" parent="Visual/Tilt/Squash/Driver/Head"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.02, -0.21)
+mesh = SubResource("Mesh_visor")
+
+[node name="NameTag" type="Label3D" parent="Visual"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.1, 0)
+billboard = 1
+no_depth_test = true
+fixed_size = true
+pixel_size = 0.0009
+text = "Piloto"
+font_size = 28
+outline_size = 8
+
+[node name="Sync" type="MultiplayerSynchronizer" parent="."]
+replication_interval = 0.033
+replication_config = SubResource("Repl_kart")
+

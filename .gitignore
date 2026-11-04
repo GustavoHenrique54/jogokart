@@ -1,0 +1,9 @@
+# Godot 4+ specific ignores
+.godot/
+/android/
+
+# Builds nativas (a build Web em build/web É versionada para o Vercel servir)
+build/windows/
+
+# Ferramentas locais
+tools/cloudflared.exe
