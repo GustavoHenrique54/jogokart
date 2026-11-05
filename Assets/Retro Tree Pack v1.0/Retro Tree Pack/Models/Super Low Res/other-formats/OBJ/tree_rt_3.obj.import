@@ -1,0 +1,25 @@
+[remap]
+
+importer="wavefront_obj"
+importer_version=1
+type="Mesh"
+uid="uid://cg0v8252vq2ob"
+path="res://.godot/imported/tree_rt_3.obj-f4acacab61afc0aa432757b7c31980ec.mesh"
+
+[deps]
+
+files=["res://.godot/imported/tree_rt_3.obj-f4acacab61afc0aa432757b7c31980ec.mesh"]
+
+source_file="res://Assets/Retro Tree Pack v1.0/Retro Tree Pack/Models/Super Low Res/other-formats/OBJ/tree_rt_3.obj"
+dest_files=["res://.godot/imported/tree_rt_3.obj-f4acacab61afc0aa432757b7c31980ec.mesh", "res://.godot/imported/tree_rt_3.obj-f4acacab61afc0aa432757b7c31980ec.mesh"]
+
+[params]
+
+generate_tangents=true
+generate_lods=true
+generate_shadow_mesh=true
+generate_lightmap_uv2=false
+generate_lightmap_uv2_texel_size=0.2
+scale_mesh=Vector3(1, 1, 1)
+offset_mesh=Vector3(0, 0, 0)
+force_disable_mesh_compression=false

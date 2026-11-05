@@ -506,6 +506,16 @@ func _apply_color(c: Color) -> void:
 	for path in ["Stripe", "Driver/Torso", "Driver/Head"]:
 		var mi := squash.get_node(path) as MeshInstance3D
 		mi.set_surface_override_material(0, mat)
+	if ResourceLoader.exists("res://Assets/textures/Ps1Wood_baseColor.png"):
+		var wood_mat := StandardMaterial3D.new()
+		wood_mat.albedo_texture = load("res://Assets/textures/Ps1Wood_baseColor.png") as Texture2D
+		wood_mat.albedo_color = Color(0.92, 0.82, 0.68)
+		wood_mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
+		wood_mat.roughness = 0.88
+		for wpath in ["Body", "RearAxle", "Backrest", "FrontAxle/Beam"]:
+			var wmi := squash.get_node_or_null(wpath) as MeshInstance3D
+			if wmi:
+				wmi.set_surface_override_material(0, wood_mat)
 	name_tag.modulate = c.lightened(0.4)
 
 
