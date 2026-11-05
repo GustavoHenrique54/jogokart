@@ -8,9 +8,7 @@ $ProjectDir = Split-Path -Parent $PSScriptRoot
 $ToolsDir = $PSScriptRoot
 
 # 1. Localiza o executavel do Godot 4.7
-$GodotExe = Get-ChildItem "$env:USERPROFILE\OneDrive*\Godot_v4.7*_win64.exe" -Recurse -File -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -notlike "*console*" } |
-    Select-Object -First 1 -ExpandProperty FullName
+$GodotExe = (Get-ChildItem "$env:USERPROFILE\OneDrive*\Godot_v4.7*_win64_console.exe" -Recurse | Select-Object -First 1).FullName
 
 if (-not $GodotExe) {
     $GodotExe = (Get-Command godot -ErrorAction SilentlyContinue).Source

@@ -1,5 +1,5 @@
 extends CanvasLayer
-## Menu de conexão + HUD, montados por código.
+## Menu de conexão + HUD do Carrinho de Rolimã (Descida de Ladeira / Pumptrack).
 
 signal join_requested(address: String, player_name: String)
 signal host_requested(player_name: String)
@@ -15,6 +15,7 @@ var _join_btn: Button
 var _host_btn: Button
 var _practice_btn: Button
 var _resume_btn: Button
+var _restart_btn: Button
 var _leave_btn: Button
 var _status: Label
 var _session_box: VBoxContainer
@@ -22,8 +23,9 @@ var _lobby_box: VBoxContainer
 
 var _hud: Control
 var _info: Label
+var _timer_lbl: Label
 var _speed: Label
-var _drift: Label
+var _slope_lbl: Label
 var _hint: Label
 
 
@@ -84,27 +86,44 @@ func _set_kart_controls(enabled: bool) -> void:
 func _process(_delta: float) -> void:
 	if not _hud.visible:
 		return
-	# Garante que um kart recém-spawnado respeite o estado do menu.
 	var kart := get_tree().get_first_node_in_group("local_kart") as Kart
+	var world := get_tree().current_scene.get_node_or_null("World")
 	var role := "Treino offline"
 	var mp := multiplayer.multiplayer_peer
 	if mp and not (mp is OfflineMultiplayerPeer):
 		role = "Host" if multiplayer.is_server() else "Cliente"
 	var players := get_tree().get_nodes_in_group("karts").size()
 	var ping := "" if Net.ping_ms < 0 else " · ping %d ms" % Net.ping_ms
-	_info.text = "%s · %d no mapa%s · %d FPS" % [role, players, ping, Engine.get_frames_per_second()]
+	_info.text = "%s · %d no morro%s · %d FPS" % [role, players, ping, Engine.get_frames_per_second()]
+
 	if kart:
 		kart.controls_enabled = not _menu.visible
 		_speed.text = "%d km/h" % roundi(kart.get_speed_kmh())
-		if kart.is_boosting():
-			_drift.text = "TURBO!"
-			_drift.modulate = Color(1.0, 0.6, 0.15)
-		elif kart.drifting:
-			var names := ["DRIFT", "MINI-TURBO", "SUPER TURBO", "ULTRA TURBO"]
-			_drift.text = names[clampi(kart.drift_stage, 0, 3)]
-			_drift.modulate = Kart.DRIFT_COLORS[clampi(kart.drift_stage, 0, 3)]
+
+		var prog := 0.0
+		if world and world.has_method("compute_progress"):
+			prog = world.compute_progress(kart.ball.global_position) * 100.0
+		var t := kart.finished_time if kart.finished_time > 0.0 else kart.race_time
+		var mins := int(t) / 60
+		var secs := fmod(t, 60.0)
+		if kart.finished_time > 0.0:
+			_timer_lbl.text = "CHEGOU! Tempo: %02d:%05.2f  (Aperte Esc -> Voltar ao Topo)" % [mins, secs]
+			_timer_lbl.modulate = Color(1.0, 0.88, 0.25)
 		else:
-			_drift.text = ""
+			_timer_lbl.text = "Descida: %0.0f%%  ·  Tempo: %02d:%05.2f" % [prog, mins, secs]
+			_timer_lbl.modulate = Color.WHITE
+
+		if not kart.grounded and kart.air_time > 0.14:
+			_slope_lbl.text = "NO AR! (perdendo embalo)"
+			_slope_lbl.modulate = Color(1.0, 0.55, 0.2)
+		elif kart.slope_grade > 0.095:
+			_slope_lbl.text = "DECLIVE FORTE! +++ VELOCIDADE"
+			_slope_lbl.modulate = Color(0.25, 0.9, 1.0)
+		elif kart.slope_grade < -0.025:
+			_slope_lbl.text = "ACLIVE / LOMBADA! (cuidado com o salto)"
+			_slope_lbl.modulate = Color(1.0, 0.65, 0.25)
+		else:
+			_slope_lbl.text = ""
 
 
 # ----------------------------------------------------------------- construção
@@ -112,7 +131,7 @@ func _process(_delta: float) -> void:
 func _build_menu() -> void:
 	_menu = PanelContainer.new()
 	_menu.set_anchors_preset(Control.PRESET_CENTER)
-	_menu.custom_minimum_size = Vector2(460, 0)
+	_menu.custom_minimum_size = Vector2(480, 0)
 	_menu.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_menu.grow_vertical = Control.GROW_DIRECTION_BOTH
 	var sb := StyleBoxFlat.new()
@@ -127,13 +146,13 @@ func _build_menu() -> void:
 	_menu.add_child(root)
 
 	var title := Label.new()
-	title.text = "JOGOKART"
+	title.text = "ROLIMÃ PUMPTRACK"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 44)
+	title.add_theme_font_size_override("font_size", 40)
 	title.add_theme_color_override("font_color", Color(1.0, 0.75, 0.2))
 	root.add_child(title)
 	var sub := Label.new()
-	sub.text = "protótipo de game feel · v0.1"
+	sub.text = "descida de morro multiplayer · v0.2"
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sub.modulate = Color(1, 1, 1, 0.6)
 	root.add_child(sub)
@@ -156,33 +175,35 @@ func _build_menu() -> void:
 	_join_btn = _button("Entrar no servidor", _on_join)
 	_lobby_box.add_child(_join_btn)
 	_host_btn = _button("Hospedar partida (porta %d)" % Net.DEFAULT_PORT, _on_host)
-	_host_btn.visible = not Net.is_web() # navegador não consegue ser servidor
+	_host_btn.visible = not Net.is_web()
 	_lobby_box.add_child(_host_btn)
-	_practice_btn = _button("Treinar sozinho", _on_practice)
+	_practice_btn = _button("Treinar descida sozinho", _on_practice)
 	_lobby_box.add_child(_practice_btn)
 
 	_session_box = VBoxContainer.new()
 	_session_box.add_theme_constant_override("separation", 8)
 	root.add_child(_session_box)
-	_resume_btn = _button("Continuar", _hide_menu)
+	_resume_btn = _button("Continuar descida", _hide_menu)
 	_session_box.add_child(_resume_btn)
+	_restart_btn = _button("Voltar ao topo da ladeira", _on_restart_top)
+	_session_box.add_child(_restart_btn)
 	_leave_btn = _button("Sair da sessão", func(): leave_requested.emit())
 	_session_box.add_child(_leave_btn)
 
 	_status = Label.new()
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_status.custom_minimum_size = Vector2(410, 0)
+	_status.custom_minimum_size = Vector2(430, 0)
 	_status.modulate = Color(0.7, 0.9, 1.0)
 	root.add_child(_status)
 
 	var help := Label.new()
-	help.text = "Teclado: W/S acelera/freia · A/D vira · Espaço pulo+drift · R reposiciona · Esc menu\n" + \
-			"Controle: A/RT acelera · B/LT freia · analógico vira · RB/LB drift · Select reposiciona\n" + \
-			"Drift: segure o pulo e vire. Solte após as faíscas ficarem azul/laranja/roxa para o turbo."
+	help.text = "Teclado: W/S empurra/freia · A/D vira os pés · R volta ao checkpoint · Esc menu\n" + \
+			"Controle: A/RT acelera · B/LT freia · analógico vira · Select volta ao checkpoint\n" + \
+			"Dica de Pumptrack: procure as partes AZUIS da rua (onde a ladeira afunda mais) para ganhar muita velocidade, e desvie das lombadas LARANJAS para não saltar e perder embalo!"
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	help.custom_minimum_size = Vector2(410, 0)
+	help.custom_minimum_size = Vector2(430, 0)
 	help.add_theme_font_size_override("font_size", 12)
-	help.modulate = Color(1, 1, 1, 0.55)
+	help.modulate = Color(1, 1, 1, 0.62)
 	root.add_child(help)
 
 
@@ -199,6 +220,16 @@ func _build_hud() -> void:
 	_info.add_theme_color_override("font_outline_color", Color.BLACK)
 	_hud.add_child(_info)
 
+	_timer_lbl = Label.new()
+	_timer_lbl.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	_timer_lbl.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_timer_lbl.offset_top = 14
+	_timer_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_timer_lbl.add_theme_font_size_override("font_size", 22)
+	_timer_lbl.add_theme_constant_override("outline_size", 6)
+	_timer_lbl.add_theme_color_override("font_outline_color", Color.BLACK)
+	_hud.add_child(_timer_lbl)
+
 	_speed = Label.new()
 	_speed.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	_speed.grow_horizontal = Control.GROW_DIRECTION_BEGIN
@@ -211,25 +242,25 @@ func _build_hud() -> void:
 	_speed.add_theme_color_override("font_outline_color", Color.BLACK)
 	_hud.add_child(_speed)
 
-	_drift = Label.new()
-	_drift.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	_drift.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	_drift.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	_drift.offset_bottom = -40
-	_drift.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_drift.add_theme_font_size_override("font_size", 32)
-	_drift.add_theme_constant_override("outline_size", 8)
-	_drift.add_theme_color_override("font_outline_color", Color.BLACK)
-	_hud.add_child(_drift)
+	_slope_lbl = Label.new()
+	_slope_lbl.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_slope_lbl.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_slope_lbl.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_slope_lbl.offset_bottom = -42
+	_slope_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_slope_lbl.add_theme_font_size_override("font_size", 26)
+	_slope_lbl.add_theme_constant_override("outline_size", 7)
+	_slope_lbl.add_theme_color_override("font_outline_color", Color.BLACK)
+	_hud.add_child(_slope_lbl)
 
 	_hint = Label.new()
 	_hint.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	_hint.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	_hint.offset_left = 16
 	_hint.offset_bottom = -12
-	_hint.text = "Esc: menu · R: reposicionar"
+	_hint.text = "Esc: menu · R: voltar para a pista (Azul = Declive Rápido | Laranja = Lombada/Salto)"
 	_hint.add_theme_font_size_override("font_size", 12)
-	_hint.modulate = Color(1, 1, 1, 0.6)
+	_hint.modulate = Color(1, 1, 1, 0.7)
 	_hud.add_child(_hint)
 
 
@@ -269,6 +300,12 @@ func _on_host() -> void:
 func _on_practice() -> void:
 	_save_settings()
 	practice_requested.emit(_current_name())
+
+
+func _on_restart_top() -> void:
+	for k in get_tree().get_nodes_in_group("local_kart"):
+		k.restart_at_top()
+	_hide_menu()
 
 
 func _load_settings() -> void:

@@ -9,112 +9,101 @@ bounce = 0.0
 [sub_resource type="SphereShape3D" id="Shape_ball"]
 radius = 0.5
 
-[sub_resource type="StandardMaterial3D" id="Mat_body"]
+[sub_resource type="StandardMaterial3D" id="Mat_wood"]
+albedo_color = Color(0.68, 0.45, 0.24, 1)
+roughness = 0.82
+
+[sub_resource type="StandardMaterial3D" id="Mat_wood_dark"]
+albedo_color = Color(0.5, 0.31, 0.15, 1)
+roughness = 0.85
+
+[sub_resource type="StandardMaterial3D" id="Mat_paint"]
 albedo_color = Color(0.9, 0.2, 0.2, 1)
 roughness = 0.55
 
-[sub_resource type="StandardMaterial3D" id="Mat_dark"]
-albedo_color = Color(0.16, 0.16, 0.19, 1)
-roughness = 0.8
+[sub_resource type="StandardMaterial3D" id="Mat_bearing"]
+albedo_color = Color(0.76, 0.78, 0.82, 1)
+metallic = 0.88
+roughness = 0.24
 
-[sub_resource type="StandardMaterial3D" id="Mat_tire"]
-albedo_color = Color(0.08, 0.08, 0.09, 1)
-roughness = 0.95
-
-[sub_resource type="StandardMaterial3D" id="Mat_rim"]
-albedo_color = Color(0.85, 0.85, 0.8, 1)
-metallic = 0.6
-roughness = 0.35
-
-[sub_resource type="StandardMaterial3D" id="Mat_suit"]
-albedo_color = Color(0.95, 0.95, 0.95, 1)
-roughness = 0.7
+[sub_resource type="StandardMaterial3D" id="Mat_bearing_inner"]
+albedo_color = Color(0.22, 0.24, 0.28, 1)
+metallic = 0.65
+roughness = 0.45
 
 [sub_resource type="StandardMaterial3D" id="Mat_visor"]
 albedo_color = Color(0.05, 0.07, 0.12, 1)
 metallic = 0.4
-roughness = 0.1
+roughness = 0.15
 
-[sub_resource type="BoxMesh" id="Mesh_chassis"]
-material = SubResource("Mat_body")
-size = Vector3(1.25, 0.24, 1.9)
+[sub_resource type="BoxMesh" id="Mesh_plank"]
+material = SubResource("Mat_wood")
+size = Vector3(0.78, 0.08, 1.85)
 
-[sub_resource type="BoxMesh" id="Mesh_nose"]
-material = SubResource("Mat_body")
-size = Vector3(0.95, 0.2, 0.5)
+[sub_resource type="BoxMesh" id="Mesh_stripe"]
+material = SubResource("Mat_paint")
+size = Vector3(0.32, 0.086, 1.78)
 
-[sub_resource type="BoxMesh" id="Mesh_bumper"]
-material = SubResource("Mat_dark")
-size = Vector3(1.35, 0.14, 0.18)
+[sub_resource type="BoxMesh" id="Mesh_rear_beam"]
+material = SubResource("Mat_wood_dark")
+size = Vector3(1.12, 0.09, 0.2)
 
-[sub_resource type="BoxMesh" id="Mesh_engine"]
-material = SubResource("Mat_dark")
-size = Vector3(0.8, 0.34, 0.45)
+[sub_resource type="BoxMesh" id="Mesh_front_beam"]
+material = SubResource("Mat_wood_dark")
+size = Vector3(1.14, 0.09, 0.18)
 
-[sub_resource type="BoxMesh" id="Mesh_seat"]
-material = SubResource("Mat_dark")
-size = Vector3(0.7, 0.55, 0.14)
+[sub_resource type="BoxMesh" id="Mesh_backrest"]
+material = SubResource("Mat_wood_dark")
+size = Vector3(0.7, 0.32, 0.08)
 
-[sub_resource type="BoxMesh" id="Mesh_spoiler"]
-material = SubResource("Mat_body")
-size = Vector3(1.35, 0.06, 0.35)
+[sub_resource type="BoxMesh" id="Mesh_side_handle"]
+material = SubResource("Mat_wood_dark")
+size = Vector3(0.07, 0.12, 0.55)
 
-[sub_resource type="BoxMesh" id="Mesh_strut"]
-material = SubResource("Mat_dark")
-size = Vector3(0.06, 0.32, 0.12)
+[sub_resource type="CylinderMesh" id="Mesh_bearing"]
+material = SubResource("Mat_bearing")
+top_radius = 0.15
+bottom_radius = 0.15
+height = 0.09
+radial_segments = 12
+rings = 1
 
-[sub_resource type="CylinderMesh" id="Mesh_exhaust"]
-material = SubResource("Mat_rim")
-top_radius = 0.07
-bottom_radius = 0.07
-height = 0.35
+[sub_resource type="BoxMesh" id="Mesh_bearing_spoke"]
+material = SubResource("Mat_bearing_inner")
+size = Vector3(0.11, 0.22, 0.06)
+
+[sub_resource type="CylinderMesh" id="Mesh_rope"]
+material = SubResource("Mat_wood_dark")
+top_radius = 0.018
+bottom_radius = 0.018
+height = 0.72
 radial_segments = 6
 rings = 1
 
-[sub_resource type="CylinderMesh" id="Mesh_wheel_rear"]
-material = SubResource("Mat_tire")
-top_radius = 0.32
-bottom_radius = 0.32
-height = 0.34
-radial_segments = 10
-rings = 1
-
-[sub_resource type="CylinderMesh" id="Mesh_wheel_front"]
-material = SubResource("Mat_tire")
-top_radius = 0.27
-bottom_radius = 0.27
-height = 0.26
-radial_segments = 10
-rings = 1
-
-[sub_resource type="BoxMesh" id="Mesh_rim_marker"]
-material = SubResource("Mat_rim")
-size = Vector3(0.36, 0.1, 0.1)
-
 [sub_resource type="CapsuleMesh" id="Mesh_torso"]
-material = SubResource("Mat_suit")
-radius = 0.24
-height = 0.7
+material = SubResource("Mat_paint")
+radius = 0.21
+height = 0.58
 radial_segments = 8
 rings = 2
 
+[sub_resource type="CapsuleMesh" id="Mesh_leg"]
+material = SubResource("Mat_bearing_inner")
+radius = 0.085
+height = 0.62
+radial_segments = 6
+rings = 1
+
 [sub_resource type="SphereMesh" id="Mesh_head"]
-material = SubResource("Mat_body")
-radius = 0.26
-height = 0.52
+material = SubResource("Mat_paint")
+radius = 0.24
+height = 0.48
 radial_segments = 10
 rings = 5
 
 [sub_resource type="BoxMesh" id="Mesh_visor"]
 material = SubResource("Mat_visor")
-size = Vector3(0.36, 0.14, 0.12)
-
-[sub_resource type="TorusMesh" id="Mesh_steering"]
-material = SubResource("Mat_dark")
-inner_radius = 0.1
-outer_radius = 0.15
-rings = 10
-ring_segments = 4
+size = Vector3(0.34, 0.13, 0.12)
 
 [sub_resource type="SceneReplicationConfig" id="Repl_kart"]
 properties/0/path = NodePath(".:sync_pos")
@@ -160,111 +149,109 @@ physics_interpolation_mode = 2
 
 [node name="Squash" type="Node3D" parent="Visual/Tilt"]
 
-[node name="Chassis" type="MeshInstance3D" parent="Visual/Tilt/Squash"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.34, 0)
-mesh = SubResource("Mesh_chassis")
+[node name="Plank" type="MeshInstance3D" parent="Visual/Tilt/Squash"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.22, 0.05)
+mesh = SubResource("Mesh_plank")
 
-[node name="Nose" type="MeshInstance3D" parent="Visual/Tilt/Squash"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.36, -1.15)
-mesh = SubResource("Mesh_nose")
+[node name="Stripe" type="MeshInstance3D" parent="Visual/Tilt/Squash"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.22, 0.05)
+mesh = SubResource("Mesh_stripe")
 
-[node name="Bumper" type="MeshInstance3D" parent="Visual/Tilt/Squash"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, -1.42)
-mesh = SubResource("Mesh_bumper")
+[node name="RearBeam" type="MeshInstance3D" parent="Visual/Tilt/Squash"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.16, 0.72)
+mesh = SubResource("Mesh_rear_beam")
 
-[node name="Engine" type="MeshInstance3D" parent="Visual/Tilt/Squash"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.6, 0.78)
-mesh = SubResource("Mesh_engine")
+[node name="Backrest" type="MeshInstance3D" parent="Visual/Tilt/Squash"]
+transform = Transform3D(1, 0, 0, 0, 0.965926, 0.258819, 0, -0.258819, 0.965926, 0, 0.39, 0.85)
+mesh = SubResource("Mesh_backrest")
 
-[node name="ExhaustL" type="MeshInstance3D" parent="Visual/Tilt/Squash"]
-transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, -0.22, 0.62, 1.08)
-mesh = SubResource("Mesh_exhaust")
+[node name="HandleL" type="MeshInstance3D" parent="Visual/Tilt/Squash"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.41, 0.28, 0.28)
+mesh = SubResource("Mesh_side_handle")
 
-[node name="ExhaustR" type="MeshInstance3D" parent="Visual/Tilt/Squash"]
-transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 0.22, 0.62, 1.08)
-mesh = SubResource("Mesh_exhaust")
+[node name="HandleR" type="MeshInstance3D" parent="Visual/Tilt/Squash"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.41, 0.28, 0.28)
+mesh = SubResource("Mesh_side_handle")
 
-[node name="Seat" type="MeshInstance3D" parent="Visual/Tilt/Squash"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.7, 0.45)
-mesh = SubResource("Mesh_seat")
+[node name="FrontAxle" type="Node3D" parent="Visual/Tilt/Squash"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.16, -0.68)
 
-[node name="Spoiler" type="MeshInstance3D" parent="Visual/Tilt/Squash"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.0, 1.0)
-mesh = SubResource("Mesh_spoiler")
+[node name="FrontBeam" type="MeshInstance3D" parent="Visual/Tilt/Squash/FrontAxle"]
+mesh = SubResource("Mesh_front_beam")
 
-[node name="StrutL" type="MeshInstance3D" parent="Visual/Tilt/Squash"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.4, 0.82, 1.0)
-mesh = SubResource("Mesh_strut")
+[node name="RopeL" type="MeshInstance3D" parent="Visual/Tilt/Squash/FrontAxle"]
+transform = Transform3D(1, 0, 0, 0, 0.258819, -0.965926, 0, 0.965926, 0.258819, -0.44, 0.14, 0.34)
+mesh = SubResource("Mesh_rope")
 
-[node name="StrutR" type="MeshInstance3D" parent="Visual/Tilt/Squash"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.4, 0.82, 1.0)
-mesh = SubResource("Mesh_strut")
+[node name="RopeR" type="MeshInstance3D" parent="Visual/Tilt/Squash/FrontAxle"]
+transform = Transform3D(1, 0, 0, 0, 0.258819, -0.965926, 0, 0.965926, 0.258819, 0.44, 0.14, 0.34)
+mesh = SubResource("Mesh_rope")
 
-[node name="SteeringWheel" type="MeshInstance3D" parent="Visual/Tilt/Squash"]
-transform = Transform3D(1, 0, 0, 0, 0.5, -0.866, 0, 0.866, 0.5, 0, 0.78, -0.28)
-mesh = SubResource("Mesh_steering")
+[node name="WheelFL" type="Node3D" parent="Visual/Tilt/Squash/FrontAxle"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.58, -0.01, 0)
+
+[node name="Bearing" type="MeshInstance3D" parent="Visual/Tilt/Squash/FrontAxle/WheelFL"]
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0)
+mesh = SubResource("Mesh_bearing")
+
+[node name="Spoke" type="MeshInstance3D" parent="Visual/Tilt/Squash/FrontAxle/WheelFL"]
+mesh = SubResource("Mesh_bearing_spoke")
+
+[node name="WheelFR" type="Node3D" parent="Visual/Tilt/Squash/FrontAxle"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.58, -0.01, 0)
+
+[node name="Bearing" type="MeshInstance3D" parent="Visual/Tilt/Squash/FrontAxle/WheelFR"]
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0)
+mesh = SubResource("Mesh_bearing")
+
+[node name="Spoke" type="MeshInstance3D" parent="Visual/Tilt/Squash/FrontAxle/WheelFR"]
+mesh = SubResource("Mesh_bearing_spoke")
 
 [node name="WheelRL" type="Node3D" parent="Visual/Tilt/Squash"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.74, 0.32, 0.7)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.58, 0.15, 0.72)
 
-[node name="Tire" type="MeshInstance3D" parent="Visual/Tilt/Squash/WheelRL"]
+[node name="Bearing" type="MeshInstance3D" parent="Visual/Tilt/Squash/WheelRL"]
 transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0)
-mesh = SubResource("Mesh_wheel_rear")
+mesh = SubResource("Mesh_bearing")
 
-[node name="Rim" type="MeshInstance3D" parent="Visual/Tilt/Squash/WheelRL"]
-mesh = SubResource("Mesh_rim_marker")
+[node name="Spoke" type="MeshInstance3D" parent="Visual/Tilt/Squash/WheelRL"]
+mesh = SubResource("Mesh_bearing_spoke")
 
 [node name="WheelRR" type="Node3D" parent="Visual/Tilt/Squash"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.74, 0.32, 0.7)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.58, 0.15, 0.72)
 
-[node name="Tire" type="MeshInstance3D" parent="Visual/Tilt/Squash/WheelRR"]
+[node name="Bearing" type="MeshInstance3D" parent="Visual/Tilt/Squash/WheelRR"]
 transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0)
-mesh = SubResource("Mesh_wheel_rear")
+mesh = SubResource("Mesh_bearing")
 
-[node name="Rim" type="MeshInstance3D" parent="Visual/Tilt/Squash/WheelRR"]
-mesh = SubResource("Mesh_rim_marker")
-
-[node name="SteerFL" type="Node3D" parent="Visual/Tilt/Squash"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.68, 0.27, -0.78)
-
-[node name="WheelFL" type="Node3D" parent="Visual/Tilt/Squash/SteerFL"]
-
-[node name="Tire" type="MeshInstance3D" parent="Visual/Tilt/Squash/SteerFL/WheelFL"]
-transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0)
-mesh = SubResource("Mesh_wheel_front")
-
-[node name="Rim" type="MeshInstance3D" parent="Visual/Tilt/Squash/SteerFL/WheelFL"]
-mesh = SubResource("Mesh_rim_marker")
-
-[node name="SteerFR" type="Node3D" parent="Visual/Tilt/Squash"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.68, 0.27, -0.78)
-
-[node name="WheelFR" type="Node3D" parent="Visual/Tilt/Squash/SteerFR"]
-
-[node name="Tire" type="MeshInstance3D" parent="Visual/Tilt/Squash/SteerFR/WheelFR"]
-transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0)
-mesh = SubResource("Mesh_wheel_front")
-
-[node name="Rim" type="MeshInstance3D" parent="Visual/Tilt/Squash/SteerFR/WheelFR"]
-mesh = SubResource("Mesh_rim_marker")
+[node name="Spoke" type="MeshInstance3D" parent="Visual/Tilt/Squash/WheelRR"]
+mesh = SubResource("Mesh_bearing_spoke")
 
 [node name="Driver" type="Node3D" parent="Visual/Tilt/Squash"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0.15)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.28, 0.42)
 
 [node name="Torso" type="MeshInstance3D" parent="Visual/Tilt/Squash/Driver"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, 0)
+transform = Transform3D(1, 0, 0, 0, 0.965926, 0.258819, 0, -0.258819, 0.965926, 0, 0.26, 0.08)
 mesh = SubResource("Mesh_torso")
 
+[node name="LegL" type="MeshInstance3D" parent="Visual/Tilt/Squash/Driver"]
+transform = Transform3D(0.965926, 0, 0.258819, 0.258819, 0, -0.965926, 0, 1, 0, -0.24, 0.05, -0.58)
+mesh = SubResource("Mesh_leg")
+
+[node name="LegR" type="MeshInstance3D" parent="Visual/Tilt/Squash/Driver"]
+transform = Transform3D(0.965926, 0, -0.258819, -0.258819, 0, -0.965926, 0, 1, 0, 0.24, 0.05, -0.58)
+mesh = SubResource("Mesh_leg")
+
 [node name="Head" type="MeshInstance3D" parent="Visual/Tilt/Squash/Driver"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.82, -0.02)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.68, 0.02)
 mesh = SubResource("Mesh_head")
 
 [node name="Visor" type="MeshInstance3D" parent="Visual/Tilt/Squash/Driver/Head"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.02, -0.21)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.02, -0.19)
 mesh = SubResource("Mesh_visor")
 
 [node name="NameTag" type="Label3D" parent="Visual"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.1, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.75, 0)
 billboard = 1
 no_depth_test = true
 fixed_size = true
@@ -276,4 +263,3 @@ outline_size = 8
 [node name="Sync" type="MultiplayerSynchronizer" parent="."]
 replication_interval = 0.033
 replication_config = SubResource("Repl_kart")
-
