@@ -1378,6 +1378,7 @@ func _build_multiplayer_dialog() -> void:
 	mvb.add_child(_label("Endereço do Servidor (Link Cloudflare ou IP)"))
 	_addr_edit = LineEdit.new()
 	_addr_edit.placeholder_text = "wss://xxxx.trycloudflare.com  ou  localhost"
+	_addr_edit.text = "wss://mix-familiar-hopkins-demographic.trycloudflare.com"
 	mvb.add_child(_addr_edit)
 
 	var btn_row := HBoxContainer.new()
@@ -1717,7 +1718,9 @@ func _load_settings() -> void:
 		if _top_name_edit:
 			_top_name_edit.text = pname
 		if _addr_edit:
-			_addr_edit.text = cfg.get_value("net", "address", "")
+			var saved_addr: String = cfg.get_value("net", "address", "")
+			if saved_addr != "" and not saved_addr.contains("trycloudflare.com"):
+				_addr_edit.text = saved_addr
 		_selected_character_id = cfg.get_value("player", "character", CharacterDataScript.BOITATA)
 		master_vol = cfg.get_value("audio", "master_volume", 0.8)
 		is_fullscreen = cfg.get_value("video", "fullscreen", false)
