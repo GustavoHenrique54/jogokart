@@ -207,7 +207,7 @@ func _local_physics(delta: float) -> void:
 		if Input.is_action_just_pressed("respawn"):
 			respawn(_safe_pos, _safe_heading)
 			return
-	if ball.global_position.y < -650.0:
+	if ball.global_position.y < -2500.0:
 		respawn(_safe_pos, _safe_heading)
 		return
 
