@@ -102,6 +102,7 @@ var _timer_lbl: Label
 var _speed: Label
 var _slope_lbl: Label
 var _hint: Label
+var _skill_hud_panel: PanelContainer
 var _hud_char_banner: Label
 var _hud_passive_lbl: Label
 var _hud_damage_btn: PanelContainer
@@ -111,8 +112,19 @@ var _hud_barrier_btn: PanelContainer
 var _hud_barrier_lbl: Label
 var _hud_barrier_cd_lbl: Label
 
+# Controles Touch Mobile (Multi-Touch na tela para Celular/Tablet)
+var _is_mobile_touch: bool = false
+var _mobile_controls: Control
+var _touch_buttons: Dictionary = {} # action_name -> Control
+var _touch_action_state: Dictionary = {} # action_name -> bool
+var _touch_points: Dictionary = {} # finger_index -> Vector2
+var _mobile_dmg_lbl: Label
+var _mobile_bar_lbl: Label
+var _toggle_touch_btn: Button
+
 
 func _ready() -> void:
+	_is_mobile_touch = _detect_mobile_device()
 	_setup_lobby_music()
 	_build_lobby()
 	_build_multiplayer_dialog()
@@ -121,6 +133,52 @@ func _ready() -> void:
 	_load_settings()
 	Net.status_changed.connect(set_status)
 	show_menu("")
+
+
+func _detect_mobile_device() -> bool:
+	if OS.has_feature("mobile") or OS.has_feature("web_android") or OS.has_feature("web_ios"):
+		return true
+	if DisplayServer.is_touchscreen_available():
+		return true
+	if OS.has_feature("web"):
+		var js_touch = JavaScriptBridge.eval("Boolean(('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(navigator.userAgent))", true)
+		if bool(js_touch):
+			return true
+	return false
+
+
+func _input(event: InputEvent) -> void:
+	# Se o jogador tocar na tela em qualquer momento, ativa automaticamente o modo mobile!
+	if event is InputEventScreenTouch and not _is_mobile_touch:
+		_enable_mobile_controls(true)
+
+	if not _hud or not _hud.visible or _pause_menu.visible or not _mobile_controls or not _mobile_controls.visible:
+		return
+
+	if event is InputEventScreenTouch:
+		var st := event as InputEventScreenTouch
+		if st.pressed:
+			_touch_points[st.index] = st.position
+		else:
+			_touch_points.erase(st.index)
+		_sync_touch_controls()
+	elif event is InputEventScreenDrag:
+		var sd := event as InputEventScreenDrag
+		_touch_points[sd.index] = sd.position
+		_sync_touch_controls()
+	elif event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if mb.button_index == MOUSE_BUTTON_LEFT:
+			if mb.pressed and _is_point_on_any_touch_btn(mb.position):
+				_touch_points[-1] = mb.position
+				_sync_touch_controls()
+			elif not mb.pressed and _touch_points.has(-1):
+				_touch_points.erase(-1)
+				_sync_touch_controls()
+	elif event is InputEventMouseMotion and _touch_points.has(-1):
+		var mm := event as InputEventMouseMotion
+		_touch_points[-1] = mm.position
+		_sync_touch_controls()
 
 
 func _setup_lobby_music() -> void:
@@ -151,6 +209,7 @@ func set_status(text: String) -> void:
 
 
 func show_menu(reason: String) -> void:
+	_release_all_touch_actions()
 	_lobby_screen.visible = true
 	_pause_menu.visible = false
 	_hud.visible = false
@@ -164,22 +223,26 @@ func show_menu(reason: String) -> void:
 
 
 func show_hud() -> void:
+	_release_all_touch_actions()
 	_lobby_screen.visible = false
 	_pause_menu.visible = false
 	_multiplayer_dialog.visible = false
 	_hud.visible = true
+	_enable_mobile_controls(_is_mobile_touch)
 	_set_kart_controls(true)
 	if _lobby_music_player and _lobby_music_player.playing:
 		_lobby_music_player.stop()
 
 
 func _show_pause() -> void:
+	_release_all_touch_actions()
 	_pause_menu.visible = true
 	_set_kart_controls(false)
 	_resume_btn.grab_focus()
 
 
 func _hide_pause() -> void:
+	_release_all_touch_actions()
 	_pause_menu.visible = false
 	_set_kart_controls(true)
 
@@ -248,21 +311,36 @@ func _update_hud_abilities(kart: Kart) -> void:
 	_hud_passive_lbl.text = "Passiva: %s" % cdata.passive.name
 
 	if kart.damage_cooldown <= 0.0:
-		_hud_damage_cd_lbl.text = "PRONTA [Q]"
+		_hud_damage_cd_lbl.text = "PRONTA" if _is_mobile_touch else "PRONTA [Q]"
 		_hud_damage_cd_lbl.modulate = Color(0.35, 1.0, 0.45)
+		if _mobile_dmg_lbl:
+			_mobile_dmg_lbl.text = "💥 DANO\nPRONTA"
+			_mobile_dmg_lbl.modulate = Color(1.0, 0.92, 0.4)
 	else:
-		_hud_damage_cd_lbl.text = "[Q] %.1fs" % kart.damage_cooldown
+		_hud_damage_cd_lbl.text = "%.1fs" % kart.damage_cooldown if _is_mobile_touch else "[Q] %.1fs" % kart.damage_cooldown
 		_hud_damage_cd_lbl.modulate = Color(1.0, 0.7, 0.3)
+		if _mobile_dmg_lbl:
+			_mobile_dmg_lbl.text = "💥 DANO\n%.1fs" % kart.damage_cooldown
+			_mobile_dmg_lbl.modulate = Color(1.0, 0.6, 0.35)
 
 	if kart.is_barrier_active():
 		_hud_barrier_cd_lbl.text = "ATIVA! %.1fs" % kart.barrier_time_left
 		_hud_barrier_cd_lbl.modulate = Color(0.2, 0.95, 1.0)
+		if _mobile_bar_lbl:
+			_mobile_bar_lbl.text = "🛡️ ESCUDO\nATIVO!"
+			_mobile_bar_lbl.modulate = Color(0.2, 0.98, 1.0)
 	elif kart.barrier_cooldown <= 0.0:
-		_hud_barrier_cd_lbl.text = "PRONTA [E]"
+		_hud_barrier_cd_lbl.text = "PRONTA" if _is_mobile_touch else "PRONTA [E]"
 		_hud_barrier_cd_lbl.modulate = Color(0.35, 1.0, 0.45)
+		if _mobile_bar_lbl:
+			_mobile_bar_lbl.text = "🛡️ ESCUDO\nPRONTO"
+			_mobile_bar_lbl.modulate = Color(0.45, 0.95, 1.0)
 	else:
-		_hud_barrier_cd_lbl.text = "[E] %.1fs" % kart.barrier_cooldown
+		_hud_barrier_cd_lbl.text = "%.1fs" % kart.barrier_cooldown if _is_mobile_touch else "[E] %.1fs" % kart.barrier_cooldown
 		_hud_barrier_cd_lbl.modulate = Color(1.0, 0.7, 0.3)
+		if _mobile_bar_lbl:
+			_mobile_bar_lbl.text = "🛡️ ESCUDO\n%.1fs" % kart.barrier_cooldown
+			_mobile_bar_lbl.modulate = Color(1.0, 0.65, 0.35)
 
 
 # ================================================================= CONSTRUÇÃO DO LOBBY
@@ -564,11 +642,20 @@ func _build_center_column(parent: Control) -> void:
 	_build_center_controls_view(_center_col)
 
 
-## Trata o clique do botão direito e scroll para girar a câmera do cenário 3D
+## Trata o clique do botão direito, scroll e arrasto touch para girar a câmera do cenário 3D
 func _on_preview_gui_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton:
+	if event is InputEventScreenTouch:
+		var st := event as InputEventScreenTouch
+		_is_orbiting = st.pressed
+	elif event is InputEventScreenDrag:
+		var sd := event as InputEventScreenDrag
+		_is_orbiting = true
+		_cam_yaw -= sd.relative.x * 0.0085
+		_cam_pitch = clampf(_cam_pitch - sd.relative.y * 0.0085, deg_to_rad(-12.0), deg_to_rad(65.0))
+		_update_preview_camera()
+	elif event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
-		if mb.button_index == MOUSE_BUTTON_RIGHT:
+		if mb.button_index == MOUSE_BUTTON_RIGHT or mb.button_index == MOUSE_BUTTON_LEFT:
 			_is_orbiting = mb.pressed
 		elif mb.button_index == MOUSE_BUTTON_WHEEL_UP and mb.pressed:
 			_cam_dist = clampf(_cam_dist - 0.22, 1.2, 5.8)
@@ -1512,11 +1599,11 @@ func _build_hud() -> void:
 	_hint.modulate = Color(1, 1, 1, 0.7)
 	_hud.add_child(_hint)
 
-	var skill_hud_panel := PanelContainer.new()
-	skill_hud_panel.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	skill_hud_panel.offset_left = 16
-	skill_hud_panel.offset_bottom = -38
-	skill_hud_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_skill_hud_panel = PanelContainer.new()
+	_skill_hud_panel.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_skill_hud_panel.offset_left = 16
+	_skill_hud_panel.offset_bottom = -38
+	_skill_hud_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
 
 	var sh_sb := StyleBoxFlat.new()
 	sh_sb.bg_color = Color(0.06, 0.1, 0.2, 0.85)
@@ -1524,12 +1611,12 @@ func _build_hud() -> void:
 	sh_sb.set_content_margin_all(10)
 	sh_sb.border_width_left = 3
 	sh_sb.border_color = Color(1.0, 0.82, 0.15)
-	skill_hud_panel.add_theme_stylebox_override("panel", sh_sb)
-	_hud.add_child(skill_hud_panel)
+	_skill_hud_panel.add_theme_stylebox_override("panel", sh_sb)
+	_hud.add_child(_skill_hud_panel)
 
 	var sh_vbox := VBoxContainer.new()
 	sh_vbox.add_theme_constant_override("separation", 5)
-	skill_hud_panel.add_child(sh_vbox)
+	_skill_hud_panel.add_child(sh_vbox)
 
 	_hud_char_banner = Label.new()
 	_hud_char_banner.text = "🔥 Boitatá"
@@ -1587,8 +1674,253 @@ func _build_hud() -> void:
 	_hud_barrier_cd_lbl.text = "PRONTA [E]"
 	_hud_barrier_cd_lbl.add_theme_font_size_override("font_size", 12)
 	_hud_barrier_cd_lbl.modulate = Color(0.3, 1.0, 0.4)
-	d_vb.add_child(_hud_barrier_cd_lbl)
+	b_vb.add_child(_hud_barrier_cd_lbl)
 	h_skills.add_child(_hud_barrier_btn)
+
+	_build_mobile_controls()
+	_enable_mobile_controls(_is_mobile_touch)
+
+
+# ================================================================= CONTROLES TOUCH MOBILE (MULTI-TOUCH)
+
+func _build_mobile_controls() -> void:
+	_mobile_controls = Control.new()
+	_mobile_controls.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_mobile_controls.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hud.add_child(_mobile_controls)
+
+	# --- POLEGAR ESQUERDO: DIREÇÃO (◀ ESQ / DIR ▶) ---
+	var btn_left := _create_touch_button("steer_left", "◀\nESQ", Vector2(118, 104), Color(0.1, 0.28, 0.58, 0.78), Color(0.35, 0.78, 1.0), 22)
+	btn_left.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	btn_left.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	btn_left.offset_left = 20
+	btn_left.offset_right = 138
+	btn_left.offset_bottom = -22
+	btn_left.offset_top = -126
+	_mobile_controls.add_child(btn_left)
+
+	var btn_right := _create_touch_button("steer_right", "▶\nDIR", Vector2(118, 104), Color(0.1, 0.28, 0.58, 0.78), Color(0.35, 0.78, 1.0), 22)
+	btn_right.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	btn_right.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	btn_right.offset_left = 152
+	btn_right.offset_right = 270
+	btn_right.offset_bottom = -22
+	btn_right.offset_top = -126
+	_mobile_controls.add_child(btn_right)
+
+	# --- POLEGAR DIREITO: ACELERAR, FREAR, PULO E HABILIDADES ---
+	var btn_accel := _create_touch_button("accelerate", "▲\nACELERAR", Vector2(134, 108), Color(0.12, 0.48, 0.24, 0.84), Color(1.0, 0.86, 0.2), 18)
+	btn_accel.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	btn_accel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	btn_accel.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	btn_accel.offset_right = -20
+	btn_accel.offset_left = -154
+	btn_accel.offset_bottom = -22
+	btn_accel.offset_top = -130
+	_mobile_controls.add_child(btn_accel)
+
+	var btn_brake := _create_touch_button("brake", "▼\nFREAR", Vector2(104, 88), Color(0.48, 0.14, 0.14, 0.8), Color(1.0, 0.52, 0.35), 16)
+	btn_brake.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	btn_brake.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	btn_brake.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	btn_brake.offset_right = -166
+	btn_brake.offset_left = -270
+	btn_brake.offset_bottom = -22
+	btn_brake.offset_top = -110
+	_mobile_controls.add_child(btn_brake)
+
+	var btn_hop := _create_touch_button("drift", "⏫\nPULO", Vector2(98, 66), Color(0.14, 0.36, 0.62, 0.8), Color(0.4, 0.9, 1.0), 14)
+	btn_hop.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	btn_hop.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	btn_hop.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	btn_hop.offset_right = -20
+	btn_hop.offset_left = -118
+	btn_hop.offset_bottom = -142
+	btn_hop.offset_top = -208
+	_mobile_controls.add_child(btn_hop)
+
+	var btn_dmg := _create_touch_button("ability_damage", "💥 DANO\nPRONTA", Vector2(102, 66), Color(0.45, 0.12, 0.08, 0.82), Color(1.0, 0.55, 0.25), 13)
+	btn_dmg.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	btn_dmg.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	btn_dmg.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	btn_dmg.offset_right = -128
+	btn_dmg.offset_left = -230
+	btn_dmg.offset_bottom = -142
+	btn_dmg.offset_top = -208
+	_mobile_dmg_lbl = btn_dmg.get_meta("label") as Label
+	_mobile_controls.add_child(btn_dmg)
+
+	var btn_bar := _create_touch_button("ability_barrier", "🛡️ ESCUDO\nPRONTO", Vector2(102, 66), Color(0.08, 0.28, 0.52, 0.82), Color(0.3, 0.88, 1.0), 13)
+	btn_bar.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	btn_bar.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	btn_bar.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	btn_bar.offset_right = -240
+	btn_bar.offset_left = -342
+	btn_bar.offset_bottom = -142
+	btn_bar.offset_top = -208
+	_mobile_bar_lbl = btn_bar.get_meta("label") as Label
+	_mobile_controls.add_child(btn_bar)
+
+	# --- TOPO DIREITO: RESPAWN E PAUSA ---
+	var btn_respawn := _create_touch_button("respawn", "↺ RESPAWN", Vector2(114, 42), Color(0.28, 0.22, 0.1, 0.82), Color(1.0, 0.82, 0.25), 13)
+	btn_respawn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	btn_respawn.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	btn_respawn.offset_right = -128
+	btn_respawn.offset_left = -242
+	btn_respawn.offset_top = 12
+	btn_respawn.offset_bottom = 54
+	_mobile_controls.add_child(btn_respawn)
+
+	var btn_menu := _create_touch_button("toggle_menu", "⏸ MENU", Vector2(100, 42), Color(0.12, 0.22, 0.42, 0.85), Color(0.6, 0.85, 1.0), 13)
+	btn_menu.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	btn_menu.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	btn_menu.offset_right = -18
+	btn_menu.offset_left = -118
+	btn_menu.offset_top = 12
+	btn_menu.offset_bottom = 54
+	_mobile_controls.add_child(btn_menu)
+
+
+func _create_touch_button(action_name: String, text_str: String, min_sz: Vector2, bg_col: Color, border_col: Color, fsize: int) -> PanelContainer:
+	var pc := PanelContainer.new()
+	pc.custom_minimum_size = min_sz
+	pc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pc.pivot_offset = min_sz * 0.5
+
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = bg_col
+	sb.set_corner_radius_all(14)
+	sb.border_width_left = 3
+	sb.border_width_right = 3
+	sb.border_width_top = 3
+	sb.border_width_bottom = 5
+	sb.border_color = border_col
+	sb.set_content_margin_all(6)
+	pc.add_theme_stylebox_override("panel", sb)
+
+	var lbl := Label.new()
+	lbl.text = text_str
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lbl.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	lbl.add_theme_font_size_override("font_size", fsize)
+	lbl.add_theme_constant_override("outline_size", 5)
+	lbl.add_theme_color_override("font_outline_color", Color(0.02, 0.06, 0.14))
+	pc.add_child(lbl)
+
+	pc.set_meta("label", lbl)
+	pc.set_meta("base_color", bg_col)
+	pc.set_meta("stylebox", sb)
+	_touch_buttons[action_name] = pc
+	_touch_action_state[action_name] = false
+	return pc
+
+
+func _enable_mobile_controls(enable: bool) -> void:
+	_is_mobile_touch = enable
+	if _mobile_controls:
+		_mobile_controls.visible = enable
+	if _hint:
+		_hint.visible = not enable
+	if _hud_damage_lbl:
+		_hud_damage_lbl.text = "💥 DANO" if enable else "💥 DANO [Q]"
+	if _hud_barrier_lbl:
+		_hud_barrier_lbl.text = "🛡️ BARREIRA" if enable else "🛡️ BARREIRA [E]"
+
+	# Reposiciona o painel de informações de herói e o velocímetro para não ficarem embaixo dos polegares no celular
+	if _skill_hud_panel:
+		if enable:
+			_skill_hud_panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
+			_skill_hud_panel.grow_vertical = Control.GROW_DIRECTION_END
+			_skill_hud_panel.offset_left = 16
+			_skill_hud_panel.offset_top = 38
+			_skill_hud_panel.offset_bottom = 148
+		else:
+			_skill_hud_panel.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+			_skill_hud_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
+			_skill_hud_panel.offset_left = 16
+			_skill_hud_panel.offset_bottom = -38
+			_skill_hud_panel.offset_top = -150
+
+	if _speed:
+		if enable:
+			_speed.offset_right = -24
+			_speed.offset_bottom = -218
+		else:
+			_speed.offset_right = -24
+			_speed.offset_bottom = -16
+
+
+func _is_point_on_any_touch_btn(pt: Vector2) -> bool:
+	for action_name in _touch_buttons:
+		var ctrl := _touch_buttons[action_name] as Control
+		if ctrl and ctrl.visible and ctrl.get_global_rect().grow(10.0).has_point(pt):
+			return true
+	return false
+
+
+func _sync_touch_controls() -> void:
+	for action_name in _touch_buttons:
+		var ctrl := _touch_buttons[action_name] as PanelContainer
+		if ctrl == null or not ctrl.visible:
+			continue
+		var rect := ctrl.get_global_rect().grow(12.0)
+		var pressed_now := false
+		for f_idx in _touch_points:
+			var pt: Vector2 = _touch_points[f_idx]
+			if rect.has_point(pt):
+				pressed_now = true
+				break
+
+		# Permite também tocar nos cards de habilidade no canto superior esquerdo
+		if not pressed_now and action_name == "ability_damage" and _hud_damage_btn and _hud_damage_btn.is_visible_in_tree():
+			var d_rect := _hud_damage_btn.get_global_rect().grow(8.0)
+			for f_idx in _touch_points:
+				if d_rect.has_point(_touch_points[f_idx]):
+					pressed_now = true
+					break
+		elif not pressed_now and action_name == "ability_barrier" and _hud_barrier_btn and _hud_barrier_btn.is_visible_in_tree():
+			var b_rect := _hud_barrier_btn.get_global_rect().grow(8.0)
+			for f_idx in _touch_points:
+				if b_rect.has_point(_touch_points[f_idx]):
+					pressed_now = true
+					break
+
+		var was_pressed: bool = _touch_action_state.get(action_name, false)
+		var sb := ctrl.get_meta("stylebox") as StyleBoxFlat
+		var base_col: Color = ctrl.get_meta("base_color")
+		if pressed_now != was_pressed:
+			_touch_action_state[action_name] = pressed_now
+			if sb:
+				sb.bg_color = base_col.lightened(0.32) if pressed_now else base_col
+			ctrl.scale = Vector2(0.93, 0.93) if pressed_now else Vector2.ONE
+
+			if action_name == "toggle_menu":
+				if pressed_now and Net.in_session:
+					_show_pause()
+					return
+			else:
+				if pressed_now:
+					Input.action_press(action_name, 1.0)
+				else:
+					Input.action_release(action_name)
+
+
+func _release_all_touch_actions() -> void:
+	_touch_points.clear()
+	for action_name in _touch_action_state.keys():
+		if _touch_action_state[action_name]:
+			_touch_action_state[action_name] = false
+			if action_name != "toggle_menu" and InputMap.has_action(action_name):
+				Input.action_release(action_name)
+		var ctrl := _touch_buttons.get(action_name) as PanelContainer
+		if ctrl:
+			ctrl.scale = Vector2.ONE
+			var sb := ctrl.get_meta("stylebox") as StyleBoxFlat
+			var base_col: Color = ctrl.get_meta("base_color")
+			if sb:
+				sb.bg_color = base_col
 
 
 # ================================================================= AÇÕES E SELEÇÃO DE HERÓIS
