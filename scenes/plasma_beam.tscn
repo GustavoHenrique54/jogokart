@@ -1,0 +1,78 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/plasma_beam.gd" id="1_plasma_beam"]
+
+[sub_resource type="StandardMaterial3D" id="Mat_plasma_core"]
+shading_mode = 0
+albedo_color = Color(0.2, 1, 0.6, 1)
+
+[sub_resource type="SphereMesh" id="Mesh_plasma_core"]
+material = SubResource("Mat_plasma_core")
+radius = 0.3
+height = 0.65
+radial_segments = 10
+rings = 6
+
+[sub_resource type="StandardMaterial3D" id="Mat_plasma_trail"]
+shading_mode = 0
+vertex_color_use_as_albedo = true
+
+[sub_resource type="SphereMesh" id="Mesh_plasma_spark"]
+material = SubResource("Mat_plasma_trail")
+radius = 0.14
+height = 0.28
+radial_segments = 6
+rings = 4
+
+[sub_resource type="Curve" id="Curve_trail"]
+_data = [Vector2(0, 1), 0.0, 0.0, 0, 0, Vector2(1, 0), 0.0, 0.0, 0, 0]
+point_count = 2
+
+[sub_resource type="BoxMesh" id="Mesh_electric"]
+material = SubResource("Mat_plasma_trail")
+size = Vector3(0.08, 0.08, 0.35)
+
+[node name="PlasmaBeam" type="Node3D"]
+script = ExtResource("1_plasma_beam")
+
+[node name="Mesh" type="MeshInstance3D" parent="."]
+mesh = SubResource("Mesh_plasma_core")
+
+[node name="Light" type="OmniLight3D" parent="."]
+light_color = Color(0.3, 1, 0.7, 1)
+light_energy = 2.5
+omni_range = 6.0
+
+[node name="TrailParticles" type="CPUParticles3D" parent="."]
+amount = 28
+lifetime = 0.35
+mesh = SubResource("Mesh_plasma_spark")
+emission_shape = 1
+emission_sphere_radius = 0.2
+direction = Vector3(0, 0, 1)
+spread = 25.0
+initial_velocity_min = 1.0
+initial_velocity_max = 3.5
+gravity = Vector3(0, 0, 0)
+scale_amount_min = 0.6
+scale_amount_max = 1.3
+scale_amount_curve = SubResource("Curve_trail")
+color = Color(0.65, 0.2, 1, 1)
+
+[node name="ExplosionParticles" type="CPUParticles3D" parent="."]
+emitting = false
+amount = 45
+lifetime = 0.55
+one_shot = true
+explosiveness = 0.95
+mesh = SubResource("Mesh_electric")
+direction = Vector3(0, 1, 0)
+spread = 180.0
+initial_velocity_min = 7.0
+initial_velocity_max = 15.0
+gravity = Vector3(0, -2, 0)
+scale_amount_min = 0.8
+scale_amount_max = 1.6
+scale_amount_curve = SubResource("Curve_trail")
+color = Color(0.2, 1, 0.65, 1)
+

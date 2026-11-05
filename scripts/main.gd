@@ -38,14 +38,14 @@ func _ready() -> void:
 		Net.start_offline()
 
 
-func _on_player_registered(id: int, pname: String) -> void:
+func _on_player_registered(id: int, pname: String, pchar: String = "boitata") -> void:
 	if karts.has_node(str(id)):
 		return
 	var slot := 0
 	while slot in _slots.values():
 		slot += 1
 	_slots[id] = slot
-	spawner.spawn({"id": id, "name": pname, "slot": slot})
+	spawner.spawn({"id": id, "name": pname, "slot": slot, "character": pchar})
 
 
 func _on_player_left(id: int) -> void:
@@ -67,6 +67,7 @@ func _spawn_kart(data: Variant) -> Node:
 	var k: Kart = KART_SCENE.instantiate()
 	k.peer_id = data["id"]
 	k.player_name = data["name"]
+	k.character_id = data.get("character", "boitata")
 	k.slot = data["slot"]
 	k.name = str(data["id"])
 	var sp: Dictionary = world.get_spawn_point(data["slot"])
