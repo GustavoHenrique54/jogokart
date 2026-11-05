@@ -14,6 +14,8 @@ func _ready() -> void:
 	_add("steer_left", [KEY_A, KEY_LEFT], [JOY_BUTTON_DPAD_LEFT], [[JOY_AXIS_LEFT_X, -1.0]])
 	_add("steer_right", [KEY_D, KEY_RIGHT], [JOY_BUTTON_DPAD_RIGHT], [[JOY_AXIS_LEFT_X, 1.0]])
 	_add("drift", [KEY_SPACE, KEY_SHIFT], [JOY_BUTTON_RIGHT_SHOULDER, JOY_BUTTON_LEFT_SHOULDER], [])
+	_add("ability_damage", [KEY_Q, KEY_J], [JOY_BUTTON_X], [])
+	_add("ability_barrier", [KEY_E, KEY_K], [JOY_BUTTON_Y], [])
 	_add("respawn", [KEY_R], [JOY_BUTTON_BACK], [])
 	_add("toggle_menu", [KEY_ESCAPE], [JOY_BUTTON_START], [])
 

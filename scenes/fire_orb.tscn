@@ -1,0 +1,82 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/fire_orb.gd" id="1_fire_orb"]
+
+[sub_resource type="StandardMaterial3D" id="Mat_fire_core"]
+shading_mode = 0
+albedo_color = Color(1, 0.85, 0.2, 1)
+
+[sub_resource type="SphereMesh" id="Mesh_fire_core"]
+material = SubResource("Mat_fire_core")
+radius = 0.32
+height = 0.64
+radial_segments = 10
+rings = 6
+
+[sub_resource type="StandardMaterial3D" id="Mat_trail"]
+shading_mode = 0
+vertex_color_use_as_albedo = true
+
+[sub_resource type="SphereMesh" id="Mesh_trail"]
+material = SubResource("Mat_trail")
+radius = 0.16
+height = 0.32
+radial_segments = 6
+rings = 4
+
+[sub_resource type="Curve" id="Curve_trail"]
+_data = [Vector2(0, 1), 0.0, 0.0, 0, 0, Vector2(1, 0), 0.0, 0.0, 0, 0]
+point_count = 2
+
+[sub_resource type="StandardMaterial3D" id="Mat_explosion"]
+shading_mode = 0
+vertex_color_use_as_albedo = true
+
+[sub_resource type="BoxMesh" id="Mesh_spark"]
+material = SubResource("Mat_explosion")
+size = Vector3(0.12, 0.12, 0.12)
+
+[node name="FireOrb" type="Node3D"]
+script = ExtResource("1_fire_orb")
+
+[node name="Mesh" type="MeshInstance3D" parent="."]
+mesh = SubResource("Mesh_fire_core")
+
+[node name="Light" type="OmniLight3D" parent="."]
+light_color = Color(1, 0.45, 0.1, 1)
+light_energy = 2.0
+omni_range = 5.0
+
+[node name="TrailParticles" type="CPUParticles3D" parent="."]
+amount = 26
+lifetime = 0.35
+mesh = SubResource("Mesh_trail")
+emission_shape = 1
+emission_sphere_radius = 0.18
+direction = Vector3(0, 0, 1)
+spread = 20.0
+initial_velocity_min = 1.0
+initial_velocity_max = 3.0
+gravity = Vector3(0, 2, 0)
+scale_amount_min = 0.6
+scale_amount_max = 1.4
+scale_amount_curve = SubResource("Curve_trail")
+color = Color(1, 0.35, 0.05, 1)
+
+[node name="ExplosionParticles" type="CPUParticles3D" parent="."]
+emitting = false
+amount = 40
+lifetime = 0.5
+one_shot = true
+explosiveness = 0.95
+mesh = SubResource("Mesh_spark")
+direction = Vector3(0, 1, 0)
+spread = 180.0
+initial_velocity_min = 6.0
+initial_velocity_max = 14.0
+gravity = Vector3(0, -10, 0)
+scale_amount_min = 0.8
+scale_amount_max = 1.8
+scale_amount_curve = SubResource("Curve_trail")
+color = Color(1, 0.55, 0.1, 1)
+
