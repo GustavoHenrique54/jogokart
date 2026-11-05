@@ -19,6 +19,7 @@ const FLAME_TRAIL_PATCH_SCRIPT := preload("res://scripts/flame_trail_patch.gd")
 const ABDUCTION_BEAM_SCRIPT := preload("res://scripts/abduction_beam.gd")
 const TRAP_LOG_SCRIPT := preload("res://scripts/trap_log.gd")
 const SPINAL_TETHER_SCRIPT := preload("res://scripts/spinal_tether.gd")
+const AudioManagerScript := preload("res://scripts/audio_manager.gd")
 
 const KART_COLORS := [
 	Color(0.92, 0.18, 0.2), Color(0.2, 0.45, 0.95), Color(0.2, 0.8, 0.35), Color(0.98, 0.8, 0.15),
@@ -124,7 +125,8 @@ var sync_state := Vector4.ZERO ## x=steer, y=slope_grade, z=airborne, w=pumping_
 var sync_hops := 0
 
 # Estado de simulação.
-var controls_enabled := true
+var controls_enabled := false
+var _audio_roll: AudioStreamPlayer3D
 var heading := 0.0
 var prev_heading := 0.0
 var steer := 0.0
@@ -203,6 +205,8 @@ func _ready() -> void:
 	_build_fx()
 	_setup_character()
 	_build_shields()
+	_build_audio()
+	controls_enabled = false
 
 	if is_local():
 		add_to_group("local_kart")
@@ -328,6 +332,7 @@ func _physics_process(delta: float) -> void:
 		_update_chupacabra_passive(delta)
 
 	prev_heading = heading
+	_update_rolling_audio(delta)
 	if is_local():
 		_local_physics(delta)
 	else:
@@ -338,7 +343,12 @@ func _physics_process(delta: float) -> void:
 
 
 func _local_physics(delta: float) -> void:
-	if finished_time <= 0.0 and controls_enabled:
+	if not controls_enabled:
+		fwd_speed = 0.0
+		ball.linear_velocity = Vector3.ZERO
+		return
+
+	if finished_time <= 0.0:
 		race_time += delta
 
 	var accel_in := 0.0
@@ -357,6 +367,7 @@ func _local_physics(delta: float) -> void:
 		# Ativação das habilidades ativas
 		if GameInput.just_pressed(&"ability_damage") and damage_cooldown <= 0.0:
 			damage_cooldown = damage_max_cooldown
+			AudioManagerScript.play_sound_3d(self, "skill_q", ball.global_position, 0.0, randf_range(0.95, 1.05))
 			if character_id == CharacterDataScript.BOITATA:
 				flame_trail_time_left = 2.5
 				_flame_drop_timer = 0.0
@@ -374,6 +385,7 @@ func _local_physics(delta: float) -> void:
 
 		if GameInput.just_pressed(&"ability_barrier") and barrier_cooldown <= 0.0:
 			barrier_cooldown = barrier_max_cooldown
+			AudioManagerScript.play_sound_3d(self, "skill_e", ball.global_position, 0.0, randf_range(0.95, 1.05))
 			if character_id == CharacterDataScript.BOITATA:
 				serpent_strike_time_left = 1.5
 				_rpc_activate_serpent_strike.rpc()
@@ -388,6 +400,7 @@ func _local_physics(delta: float) -> void:
 
 		if GameInput.just_pressed(&"ability_ultimate") and ultimate_cooldown <= 0.0:
 			ultimate_cooldown = ultimate_max_cooldown
+			AudioManagerScript.play_sound_3d(self, "skill_r", ball.global_position, 2.0, 1.0)
 			_rpc_cast_ultimate.rpc(ball.global_position, heading)
 
 	if ball.global_position.y < -2500.0:
@@ -714,6 +727,7 @@ func respawn(pos: Vector3, h: float) -> void:
 func restart_at_top() -> void:
 	race_time = 0.0
 	finished_time = 0.0
+	controls_enabled = false
 	_safe_pos = spawn_pos
 	_safe_heading = spawn_heading
 	respawn(spawn_pos, spawn_heading)
@@ -738,6 +752,12 @@ func _on_landed(t_air: float) -> void:
 func _on_bump(amount: float) -> void:
 	if is_serpent_strike_active() or is_curupira_e_active() or is_chupacabra_e_active():
 		return
+
+	if amount > 1.8:
+		var impact_vol := clampf(linear_to_db(amount / 16.0), -12.0, 3.0)
+		var impact_pitch := randf_range(0.9, 1.1)
+		AudioManagerScript.play_sound_3d(self, "kart_impact", ball.global_position, impact_vol, impact_pitch)
+
 	if is_antigrav_active() and amount > 5.0:
 		# Se bater de frente em um obstáculo sólido enquanto levita, o impacto é maior e ele é arremessado para o alto!
 		ball.linear_velocity.y = maxf(ball.linear_velocity.y, 10.5)
@@ -1789,6 +1809,34 @@ func _build_shields() -> void:
 	t_part.color = Color(0.3, 0.95, 1.0)
 	t_part.position = Vector3(0, -0.14, 0.46)
 	_antigrav_thruster_node.add_child(t_part)
+
+
+func _build_audio() -> void:
+	if DisplayServer.get_name() == "headless":
+		return
+	_audio_roll = AudioStreamPlayer3D.new()
+	_audio_roll.stream = AudioManagerScript.get_stream("wheel_roll")
+	_audio_roll.volume_db = -80.0
+	_audio_roll.max_distance = 65.0
+	_audio_roll.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+	_audio_roll.bus = &"Master"
+	add_child(_audio_roll)
+
+
+func _update_rolling_audio(delta: float) -> void:
+	if _audio_roll == null or not is_instance_valid(_audio_roll):
+		return
+	if grounded and controls_enabled and absf(fwd_speed) > 0.4:
+		if not _audio_roll.playing:
+			_audio_roll.play()
+		var speed_ratio := clampf(absf(fwd_speed) / max_downhill_speed, 0.0, 1.25)
+		var target_vol := lerpf(-24.0, 2.0, speed_ratio)
+		_audio_roll.volume_db = lerpf(_audio_roll.volume_db, target_vol, 1.0 - exp(-10.0 * delta))
+		_audio_roll.pitch_scale = lerpf(0.65, 1.45, speed_ratio)
+	else:
+		_audio_roll.volume_db = move_toward(_audio_roll.volume_db, -80.0, 60.0 * delta)
+		if _audio_roll.volume_db <= -70.0 and _audio_roll.playing:
+			_audio_roll.stop()
 
 
 func _set_antigrav_thruster_active(active: bool) -> void:

@@ -91,6 +91,7 @@ var _pause_btn: Button
 var _abilities: AbilityHud
 var _blind_overlay: ColorRect
 var _mist_overlay: ColorRect
+var _traffic_light: TrafficLightHud
 
 
 func _ready() -> void:
@@ -265,8 +266,16 @@ func _is_offline() -> bool:
 
 
 func _set_kart_controls(enabled: bool) -> void:
+	var race_active: bool = true
+	var main = get_tree().current_scene
+	if main and main.get("race_manager"):
+		var rm = main.race_manager
+		if rm and rm.get("state") != null:
+			if rm.state != 2: # RaceManager.State.RACING
+				race_active = false
+	var can_control := enabled and race_active
 	for k in get_tree().get_nodes_in_group("local_kart"):
-		k.controls_enabled = enabled
+		k.controls_enabled = can_control
 
 
 func _input(event: InputEvent) -> void:
@@ -355,6 +364,9 @@ func _on_restart_top() -> void:
 	_results_shown = false
 	_stack.clear()
 	_go(Screen.HUD, false)
+	var main = get_tree().current_scene
+	if main and main.get("race_manager"):
+		main.race_manager.start_countdown()
 
 
 func _on_leave_confirmed() -> void:
@@ -1155,6 +1167,12 @@ func _build_hud() -> void:
 			_go(Screen.PAUSE))
 	_hud.add_child(_pause_btn)
 
+	_traffic_light = TrafficLightHud.new()
+	_traffic_light.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_traffic_light.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_traffic_light.visible = false
+	_hud.add_child(_traffic_light)
+
 
 func _layout_hud() -> void:
 	if _speed_box == null:
@@ -1432,6 +1450,11 @@ func notify_chupa_tether_broken(reason: String) -> void:
 	t.tween_property(_callout, "scale", Vector2.ONE, 0.18)
 	t.tween_interval(0.8)
 	t.tween_property(_callout, "modulate:a", 0.0, 0.3)
+
+
+func show_traffic_light_step(step: int) -> void:
+	if _traffic_light:
+		_traffic_light.set_step(step)
 
 
 
@@ -1756,3 +1779,121 @@ class SideShade:
 				PackedColorArray([a, b, b, a]))
 		draw_polygon(PackedVector2Array([Vector2(w * 0.42, 0), Vector2(w * 0.85, 0), Vector2(w * 0.85, h), Vector2(w * 0.42, h)]),
 				PackedColorArray([b, c, c, b]))
+
+
+# =========================================================== semáforo de largada
+
+class TrafficLightHud:
+	extends Control
+	## Semáforo clássico de largada arcade (Vermelho 3 -> Vermelho 2 -> Vermelho 1 -> Verde JÁ!).
+
+	var step: int = -1 # -1 oculto, 3, 2, 1, 0 (GO)
+	var anim_scale: float = 1.0
+	var alpha: float = 0.0
+	var _tween: Tween
+
+	func set_step(p_step: int) -> void:
+		step = p_step
+		alpha = 1.0
+		visible = true
+		if _tween:
+			_tween.kill()
+		_tween = create_tween()
+		anim_scale = 1.35
+		_tween.tween_property(self, "anim_scale", 1.0, 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		if p_step == 0:
+			_tween.tween_interval(1.1)
+			_tween.tween_property(self, "alpha", 0.0, 0.45)
+			_tween.tween_callback(func(): visible = false)
+		queue_redraw()
+
+	func _process(_delta: float) -> void:
+		if visible:
+			queue_redraw()
+
+	func _draw() -> void:
+		if alpha <= 0.01 or step < 0:
+			return
+
+		var font := UIStyle.display_font()
+		var cx := size.x * 0.5
+		var cy := 90.0
+
+		# 1. Carcaça do Semáforo (estilo arcade/kart)
+		var box_w := 280.0 * anim_scale
+		var box_h := 84.0 * anim_scale
+		var rect := Rect2(cx - box_w * 0.5, cy - box_h * 0.5, box_w, box_h)
+
+		# Sombra
+		var shadow_rect := Rect2(rect.position + Vector2(0, 5), rect.size)
+		draw_colored_polygon(CartoonBox.rounded_points(shadow_rect, 18.0), Color(0, 0, 0, 0.35 * alpha))
+		# Borda cartoon escura
+		draw_colored_polygon(CartoonBox.rounded_points(rect, 18.0), Color(0.12, 0.12, 0.15, alpha))
+		# Corpo metálico interno
+		draw_colored_polygon(CartoonBox.rounded_points(rect.grow(-4), 14.0), Color(0.20, 0.22, 0.26, alpha))
+
+		# 2. As 3 Lâmpadas
+		var lamp_r := 25.0 * anim_scale
+		var lamp_spacing := 80.0 * anim_scale
+
+		for i in 3:
+			var lx := cx + (float(i) - 1.0) * lamp_spacing
+			var lc := Vector2(lx, cy)
+
+			# Borda da lâmpada
+			draw_circle(lc, lamp_r + 2.0, Color(0.08, 0.08, 0.1, alpha))
+
+			var is_lit := false
+			var lit_color := Color.WHITE
+
+			if step == 3:
+				is_lit = (i == 0)
+				lit_color = Color("ef4444")
+			elif step == 2:
+				is_lit = (i <= 1)
+				lit_color = Color("ef4444")
+			elif step == 1:
+				is_lit = true
+				lit_color = Color("ef4444")
+			elif step == 0:
+				is_lit = true
+				lit_color = Color("22c55e")
+
+			var dark_col := Color("3a1515") if step > 0 else Color("14381e")
+			var fill_col := lit_color if is_lit else dark_col
+			fill_col.a = alpha
+
+			draw_circle(lc, lamp_r, fill_col)
+
+			if is_lit:
+				var glow_col := lit_color
+				glow_col.a = 0.35 * alpha
+				draw_circle(lc, lamp_r + 8.0, glow_col)
+				draw_circle(lc + Vector2(0, -lamp_r * 0.35), lamp_r * 0.38, Color(1, 1, 1, 0.28 * alpha))
+
+		# 3. Tipografia Arcade grande abaixo do semáforo
+		var txt := ""
+		var txt_col := UIStyle.CREAM
+		var txt_size := int(96 * anim_scale)
+
+		if step in [3, 2, 1]:
+			txt = str(step)
+			txt_col = Color("ef4444")
+		elif step == 0:
+			txt = "JÁ!"
+			txt_col = Color("22c55e")
+			txt_size = int(112 * anim_scale)
+
+		if txt != "":
+			var text_y := cy + box_h * 0.5 + 85.0 * anim_scale
+			var text_pos := Vector2(cx, text_y)
+			_text(font, txt, text_pos + Vector2(0, 4), txt_size, Color(0, 0, 0, 0.6 * alpha), true)
+			_text(font, txt, text_pos, txt_size, Color(txt_col, alpha), true)
+
+	func _text(font: Font, t: String, pos: Vector2, px: int, color: Color, centered: bool) -> void:
+		var p := pos
+		if centered:
+			p.x -= font.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x * 0.5
+		draw_string_outline(font, p, t, HORIZONTAL_ALIGNMENT_LEFT, -1, px, maxi(8, int(px * 0.25)), Color(UIStyle.INK, color.a))
+		draw_string(font, p, t, HORIZONTAL_ALIGNMENT_LEFT, -1, px, color)
+

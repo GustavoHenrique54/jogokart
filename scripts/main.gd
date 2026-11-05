@@ -2,6 +2,7 @@ extends Node3D
 ## Cena principal: liga UI <-> rede e faz o spawn dos karts.
 
 const KART_SCENE := preload("res://scenes/kart.tscn")
+const RACE_MANAGER_SCRIPT := preload("res://scripts/race_manager.gd")
 
 @onready var world: Node3D = $World
 @onready var karts: Node3D = $Karts
@@ -9,13 +10,18 @@ const KART_SCENE := preload("res://scenes/kart.tscn")
 @onready var ui: CanvasLayer = $UI
 
 var _slots := {} ## peer_id -> slot (só no servidor)
+var race_manager: Node
 
 
 func _ready() -> void:
+	race_manager = RACE_MANAGER_SCRIPT.new()
+	race_manager.name = "RaceManager"
+	add_child(race_manager)
+
 	spawner.spawn_function = _spawn_kart
 	Net.player_registered.connect(_on_player_registered)
 	Net.player_left.connect(_on_player_left)
-	Net.session_started.connect(ui.show_hud)
+	Net.session_started.connect(_on_session_started)
 	Net.session_ended.connect(_on_session_ended)
 
 	ui.join_requested.connect(func(addr: String, pname: String):
@@ -78,7 +84,19 @@ func _on_player_left(id: int) -> void:
 		k.queue_free()
 
 
+func _on_session_started() -> void:
+	ui.show_hud()
+	if not multiplayer.has_multiplayer_peer() or multiplayer.is_server():
+		# Breve tempo para o kart se posicionar no grid de largada antes da contagem
+		get_tree().create_timer(0.6).timeout.connect(func():
+			if Net.in_session and race_manager:
+				race_manager.start_countdown()
+		)
+
+
 func _on_session_ended(reason: String) -> void:
+	if race_manager:
+		race_manager.reset_race()
 	_slots.clear()
 	for c in karts.get_children():
 		c.queue_free()
