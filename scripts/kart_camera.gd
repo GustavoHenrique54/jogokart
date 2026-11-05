@@ -33,6 +33,8 @@ func _ready() -> void:
 	far = 700.0
 	fov = base_fov
 	snap()
+	if get_viewport():
+		get_viewport().audio_listener_enable_3d = true
 
 
 func snap() -> void:

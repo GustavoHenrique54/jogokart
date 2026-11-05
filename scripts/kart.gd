@@ -125,8 +125,12 @@ var sync_state := Vector4.ZERO ## x=steer, y=slope_grade, z=airborne, w=pumping_
 var sync_hops := 0
 
 # Estado de simulação.
+@export var rolling_sound_path: String = "res://audio/sfx_rolima_loop.ogg"
+var rolling_sound_player: Node # AudioStreamPlayer (local) ou AudioStreamPlayer3D (remoto)
+var lateral_slip := 0.0
+var _audio_roll: Node # Compatibilidade retroativa
+var _audio_debug_timer := 0.0
 var controls_enabled := false
-var _audio_roll: AudioStreamPlayer3D
 var heading := 0.0
 var prev_heading := 0.0
 var steer := 0.0
@@ -332,11 +336,12 @@ func _physics_process(delta: float) -> void:
 		_update_chupacabra_passive(delta)
 
 	prev_heading = heading
-	_update_rolling_audio(delta)
 	if is_local():
 		_local_physics(delta)
 	else:
 		_remote_physics(delta)
+
+	_update_rolling_audio(delta)
 
 	if is_barrier_active():
 		_process_barrier_repel(delta)
@@ -470,6 +475,7 @@ func _local_physics(delta: float) -> void:
 	var v_plane := v - up * vn
 	fwd_speed = v_plane.dot(fwd)
 	var lat := v_plane.dot(right)
+	lateral_slip = lat
 
 	# Quando passa rápido por um aclive súbito (ou crista depois de subir), o carrinho salta!
 	if grounded and was_grounded and fwd_speed > 12.0:
@@ -669,7 +675,9 @@ func _remote_physics(delta: float) -> void:
 		hop_count = sync_hops
 		_hop_fx()
 	var fwd_flat := Vector3(-sin(heading), 0.0, -cos(heading))
+	var right_flat := Vector3(cos(heading), 0.0, -sin(heading))
 	var new_fwd := sync_vel.dot(fwd_flat)
+	lateral_slip = sync_vel.dot(right_flat)
 	long_accel = lerpf(long_accel, (new_fwd - fwd_speed) / maxf(delta, 0.0001), 1.0 - exp(-6.0 * delta))
 	fwd_speed = new_fwd
 	var was_grounded := grounded
@@ -1814,29 +1822,114 @@ func _build_shields() -> void:
 func _build_audio() -> void:
 	if DisplayServer.get_name() == "headless":
 		return
-	_audio_roll = AudioStreamPlayer3D.new()
-	_audio_roll.stream = AudioManagerScript.get_stream("wheel_roll")
-	_audio_roll.volume_db = -80.0
-	_audio_roll.max_distance = 65.0
-	_audio_roll.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
-	_audio_roll.bus = &"Master"
-	add_child(_audio_roll)
+
+	# Jogador local usa AudioStreamPlayer 2D direto na saída de áudio para garantir 100% de audibilidade;
+	# Oponentes remotos usam AudioStreamPlayer3D anexado ao nó visual para espacialização 3D.
+	if is_local():
+		var p2d := AudioStreamPlayer.new()
+		p2d.name = "RollingSoundPlayer"
+		p2d.bus = &"Master"
+		add_child(p2d)
+		rolling_sound_player = p2d
+	else:
+		var p3d := AudioStreamPlayer3D.new()
+		p3d.name = "RollingSoundPlayer"
+		p3d.max_distance = 65.0
+		p3d.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+		p3d.bus = &"Master"
+		visual.add_child(p3d)
+		rolling_sound_player = p3d
+
+	# Verificação segura de arquivo de áudio configurável (.ogg ou .wav)
+	var stream: AudioStream = null
+	var found_path := ""
+	var candidate_paths := [
+		rolling_sound_path,
+		"res://audio/sfx_rolima_loop.ogg",
+		"res://audio/sfx_rolima_loop.wav",
+		"res://audio/wheel_roll.wav"
+	]
+
+	for path in candidate_paths:
+		if path != "" and (ResourceLoader.exists(path) or FileAccess.file_exists(path)):
+			stream = load(path)
+			if stream != null:
+				found_path = path
+				break
+
+	# Assegura reprodução em loop contínuo
+	if stream != null:
+		if stream is AudioStreamOggVorbis:
+			(stream as AudioStreamOggVorbis).loop = true
+		elif stream is AudioStreamWAV:
+			(stream as AudioStreamWAV).loop_mode = AudioStreamWAV.LOOP_FORWARD
+		print_debug("[Áudio Rolimã] Sucesso: Arquivo de áudio carregado de '", found_path, "'. Loop contínuo ativo.")
+	else:
+		stream = AudioManagerScript.get_stream("wheel_roll")
+		print_debug("[Áudio Rolimã] Info: Nenhum arquivo customizado encontrado. Usando sintetizador procedural padrão.")
+
+	rolling_sound_player.stream = stream
+	rolling_sound_player.volume_db = -80.0
+	rolling_sound_player.pitch_scale = 0.6
+	rolling_sound_player.play()
+	_audio_roll = rolling_sound_player
+	print_debug("[Áudio Rolimã] Nó 'RollingSoundPlayer' (", rolling_sound_player.get_class(), ") instanciado e .play() executado no _ready(). Playing = ", rolling_sound_player.playing)
 
 
 func _update_rolling_audio(delta: float) -> void:
-	if _audio_roll == null or not is_instance_valid(_audio_roll):
+	if rolling_sound_player == null or not is_instance_valid(rolling_sound_player):
 		return
-	if grounded and controls_enabled and absf(fwd_speed) > 0.4:
-		if not _audio_roll.playing:
-			_audio_roll.play()
-		var speed_ratio := clampf(absf(fwd_speed) / max_downhill_speed, 0.0, 1.25)
-		var target_vol := lerpf(-24.0, 2.0, speed_ratio)
-		_audio_roll.volume_db = lerpf(_audio_roll.volume_db, target_vol, 1.0 - exp(-10.0 * delta))
-		_audio_roll.pitch_scale = lerpf(0.65, 1.45, speed_ratio)
+
+	# Garante que o stream nunca pare de rodar em loop de fundo
+	if not rolling_sound_player.playing:
+		rolling_sound_player.play()
+
+	# Velocidade frontal atual e velocidade planar de rolamento
+	var current_spd := maxf(absf(fwd_speed), ball.linear_velocity.length() if ball != null else 0.0)
+
+	# Razão de velocidade em relação à velocidade máxima de descida
+	var speed_ratio := clampf(current_spd / max_downhill_speed, 0.0, 1.25)
+
+	# 1. Volume: Mudo (-80 dB) parado, subindo suavemente a partir de 0.15 m/s até +3.0 dB na velocidade máxima
+	var target_vol: float
+	if current_spd > 0.15:
+		target_vol = lerpf(-30.0, 3.0, pow(speed_ratio, 0.75))
+
+		# Se estiver levitando com o Propulsor Antigravitacional do ET, o atrito com o asfalto é anulado
+		if is_antigrav_active():
+			target_vol -= 28.0
 	else:
-		_audio_roll.volume_db = move_toward(_audio_roll.volume_db, -80.0, 60.0 * delta)
-		if _audio_roll.volume_db <= -70.0 and _audio_roll.playing:
-			_audio_roll.stop()
+		target_vol = -80.0
+
+	# 2. Pitch Scale: Frequência proporcional à rotação das esferas (0.6x em baixa até 1.8x na velocidade máxima)
+	var base_pitch := lerpf(0.6, 1.8, speed_ratio)
+
+	# 3. Efeito de Drift / Derrapagem Lateral
+	var lat_spd := absf(lateral_slip)
+	var steer_intensity := absf(steer) * clampf(current_spd / 12.0, 0.0, 1.0)
+	var drift_factor := clampf(maxf(lat_spd / 7.0, steer_intensity * 0.85), 0.0, 1.0)
+	if _overheat_skid_timer > 0.0:
+		drift_factor = maxf(drift_factor, 0.65)
+
+	var final_pitch := base_pitch
+	if drift_factor > 0.06 and current_spd > 1.0:
+		var pitch_boost := 0.28 * drift_factor
+		var tremolo := sin(Time.get_ticks_msec() * 0.06) * (0.075 * drift_factor)
+		var chatter := (randf() - 0.5) * (0.04 * drift_factor)
+		final_pitch = clampf(base_pitch + pitch_boost + tremolo + chatter, 0.55, 2.25)
+		target_vol = minf(target_vol + drift_factor * 2.0, 3.5)
+
+	# Interpolação suave para transições perfeitas
+	var vol_lerp_speed := 14.0 if target_vol > rolling_sound_player.volume_db else 8.0
+	rolling_sound_player.volume_db = lerpf(rolling_sound_player.volume_db, target_vol, 1.0 - exp(-vol_lerp_speed * delta))
+	rolling_sound_player.pitch_scale = lerpf(rolling_sound_player.pitch_scale, final_pitch, 1.0 - exp(-15.0 * delta))
+
+	# Print debug periódico no console a cada 0.5s ou quando em movimento
+	_audio_debug_timer -= delta
+	if _audio_debug_timer <= 0.0:
+		_audio_debug_timer = 0.5
+		if current_spd > 0.2 or rolling_sound_player.volume_db > -75.0:
+			print_debug("[Áudio Rolimã] Vel: ", snappedf(current_spd, 0.1), " m/s | Vol: ", snappedf(rolling_sound_player.volume_db, 0.1), " dB (alvo: ", snappedf(target_vol, 0.1), " dB) | Pitch: ", snappedf(rolling_sound_player.pitch_scale, 0.01), "x | Tocando: ", rolling_sound_player.playing)
 
 
 func _set_antigrav_thruster_active(active: bool) -> void:
