@@ -14,12 +14,13 @@ extends Node
 signal status_changed(text: String)
 signal session_started
 signal session_ended(reason: String)
-signal player_registered(id: int, player_name: String) ## só no servidor
+signal player_registered(id: int, player_name: String, character_id: String) ## só no servidor
 signal player_left(id: int) ## só no servidor
 
 const DEFAULT_PORT := 8080
 
 var player_name := "Piloto"
+var player_character := "boitata"
 var in_session := false
 var is_dedicated := false
 var ping_ms := -1
@@ -84,7 +85,7 @@ func host(port: int = DEFAULT_PORT, dedicated := false) -> Error:
 	print("[Net] Servidor WebSocket escutando na porta %d (dedicado=%s)" % [port, dedicated])
 	session_started.emit()
 	if not dedicated:
-		player_registered.emit(1, player_name)
+		player_registered.emit(1, player_name, player_character)
 	return OK
 
 
@@ -108,7 +109,7 @@ func start_offline() -> void:
 	in_session = true
 	status_changed.emit("Modo treino (offline)")
 	session_started.emit()
-	player_registered.emit(1, player_name)
+	player_registered.emit(1, player_name, player_character)
 
 
 func leave(emit_signal_ended := true) -> void:
@@ -163,7 +164,7 @@ func _on_connected_to_server() -> void:
 	in_session = true
 	status_changed.emit("Conectado! id=%d" % multiplayer.get_unique_id())
 	session_started.emit()
-	_register.rpc_id(1, player_name)
+	_register.rpc_id(1, player_name, player_character)
 
 
 func _on_connection_failed() -> void:
@@ -183,15 +184,17 @@ func _on_server_disconnected() -> void:
 # ---------------------------------------------------------------- RPCs
 
 @rpc("any_peer", "call_remote", "reliable")
-func _register(pname: String) -> void:
+func _register(pname: String, pchar: String = "boitata") -> void:
 	if not multiplayer.is_server():
 		return
 	var id := multiplayer.get_remote_sender_id()
 	pname = pname.strip_edges().left(16)
 	if pname.is_empty():
 		pname = "Piloto %d" % (id % 1000)
-	print("[Net] Jogador registrado: %s (%d)" % [pname, id])
-	player_registered.emit(id, pname)
+	if pchar.is_empty():
+		pchar = "boitata"
+	print("[Net] Jogador registrado: %s (%d) [Personagem: %s]" % [pname, id, pchar])
+	player_registered.emit(id, pname, pchar)
 
 
 @rpc("any_peer", "call_remote", "unreliable")

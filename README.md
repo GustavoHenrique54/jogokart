@@ -10,8 +10,22 @@ Protótipo inicial focado em **game feel arcade** (inspirado em *Mario Kart* e *
 | **Frear / Ré** | `S` ou `↓` | `B` / `X` ou `LT` |
 | **Virar** | `A` / `D` ou `←` / `→` | Analógico Esquerdo ou D-Pad |
 | **Pulo (Hop) + Drift** | `Espaço` ou `Shift` | `RB` ou `LB` |
+| **Habilidade 1 (Dano)** | `Q` ou `J` | `X` (Xbox) / `□` (PS) |
+| **Habilidade 2 (Barreira)** | `E` ou `K` | `Y` (Xbox) / `△` (PS) |
 | **Reposicionar (Respawn)** | `R` | `Select` / `Back` |
 | **Menu / Pausa** | `Esc` | `Start` |
+
+### Personagens do Folclore Brasileiro
+
+- **🔥 Boitatá — A Serpente de Fogo Mística**:
+  - **Passiva (Fogo-Fátuo da Floresta)**: Rodas em brasa que aquecem o asfalto, concedendo +20% de aceleração no empurrão, 40% menos perda de velocidade em aclives e +15% de aderência nas curvas fechadas.
+  - **Habilidade 1 — Dano (Labareda Voraz, `Q`)**: Dispara uma esfera de fogo ancestral que explode ao atingir oponentes ou o solo, causando desaceleração térmica temporária, knockback e fumaça.
+  - **Habilidade 2 — Barreira (Manto de Fogo Sagrado, `E`)**: Invoca um anel giratório de labaredas vivas por 4s, concedendo imunidade total a danos e batidas fortes, e repelindo karts adversários que chegarem perto.
+
+- **🛸 ET de Varginha — O Mistério de Roswell Mineiro**:
+  - **Passiva (Gravidade Ufológica)**: Redução de 30% na gravidade durante o ar, controle aéreo aprimorado e ZERO penalidade de velocidade ao pousar de saltos e lombadas.
+  - **Habilidade 1 — Dano (Raio de Plasma Psiônico, `Q`)**: Atira um projétil de plasma extraterrestre bioluminescente que desestabiliza a gravidade e direção do veículo atingido.
+  - **Habilidade 2 — Barreira (Cúpula de Força Alienígena, `E`)**: Projeta uma redoma holográfica esférica por 4s que bloqueia ataques inimigos, zera a resistência aerodinâmica do ar e repele karts e obstáculos.
 
 ### Como funciona o Drift + Mini-Turbo
 1. Acelere e segure **Pulo/Drift** (`Espaço` ou `RB`) enquanto esterça para um lado.
