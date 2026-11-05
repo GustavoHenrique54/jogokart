@@ -29,6 +29,22 @@ func _ready() -> void:
 		Net.start_offline())
 	ui.leave_requested.connect(func(): Net.leave())
 
+	# Câmera que passeia pela pista atrás dos menus.
+	var menu_cam := MenuCamera.new()
+	menu_cam.world = world
+	add_child(menu_cam)
+	ui.menu_camera = menu_cam
+	menu_cam.activate()
+
+	var shot := _arg_value("--ui-shot=")
+	if shot != "":
+		if "--fake-touch" in OS.get_cmdline_user_args():
+			GameInput.force_device(GameInput.Device.TOUCH)
+		elif "--fake-gamepad" in OS.get_cmdline_user_args():
+			GameInput.force_device(GameInput.Device.GAMEPAD)
+		ui.debug_capture(shot, _arg_value("--shot-out="))
+		return
+
 	if Net.wants_dedicated_server():
 		ui.visible = false
 		Net.host(Net.cmdline_port(), true)
@@ -36,6 +52,13 @@ func _ready() -> void:
 		_bake_editor_scene()
 	elif "--practice" in OS.get_cmdline_user_args() or "--practice" in OS.get_cmdline_args():
 		Net.start_offline()
+
+
+func _arg_value(prefix: String) -> String:
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with(prefix):
+			return a.trim_prefix(prefix)
+	return ""
 
 
 func _on_player_registered(id: int, pname: String, pchar: String = "boitata") -> void:

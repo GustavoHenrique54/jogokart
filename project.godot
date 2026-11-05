@@ -19,6 +19,7 @@ config/icon="res://icon.svg"
 
 Net="*res://scripts/net.gd"
 GameInput="*res://scripts/game_input.gd"
+Settings="*res://scripts/settings.gd"
 
 [display]
 

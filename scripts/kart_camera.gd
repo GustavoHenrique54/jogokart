@@ -44,6 +44,8 @@ func snap() -> void:
 
 
 func add_trauma(amount: float) -> void:
+	if not Settings.camera_shake:
+		return
 	_trauma = clampf(_trauma + amount, 0.0, 1.0)
 
 

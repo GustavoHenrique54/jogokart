@@ -1,250 +1,265 @@
 extends CanvasLayer
-## Lobby inspirado em Crash Team Rumble / Kart Arcade clássico de PS1 com tema da Floresta e Cultura Brasileira.
-## Cenário 3D interativo na Floresta Tropical: arraste com o botão direito para girar a câmera e olhar em volta.
-## Aba de Controles idêntica ao design do Aku Aku (madeira + pergaminho) no lugar dos personagens.
-## Trilha sonora procedural contínua com tema da Floresta Amazônica tocando no lobby.
+## Interface do Rolimã: tela de título, menus em placas de madeira, seleção de pilotos,
+## HUD e controles de toque.
+##
+## Princípios de usabilidade aplicados (desktop, controle e celular):
+## - Sempre existe UM item focado ao abrir uma tela (o controle nunca fica "perdido"),
+##   a navegação dá a volta (do último vai para o primeiro) e cada tela lembra o último item.
+## - VOLTAR é consistente: Esc / B / pílula "VOLTAR" clicável / item VOLTAR na própria placa.
+## - Ação destrutiva (sair da partida) pede confirmação, com o "NÃO" focado por padrão.
+## - Texto grande com contorno grosso: lê no sofá, na TV e no celular, sobre qualquer cenário.
+## - Os menus ficam por cima do mundo 3D vivo (câmera passeando pela descida), sem fundo chapado.
+## - HUD de "uma olhada": tempo + progresso em cima, velocidade num canto, habilidades com recarga
+##   visível e avisos curtos ("DESCIDA!", "NO AR!") só quando importam.
+## - No celular: controles de toque, nada de texto de teclado, pausa grande no canto e aviso para
+##   girar o aparelho quando estiver na vertical.
+## - Ícones de botão acompanham o dispositivo em uso (teclado, controle ou toque).
 
 signal join_requested(address: String, player_name: String)
 signal host_requested(player_name: String)
 signal practice_requested(player_name: String)
 signal leave_requested
 
-const SETTINGS_PATH := "user://settings.cfg"
-const CharacterDataScript := preload("res://scripts/character_data.gd")
-const AmazonThemeScript := preload("res://scripts/amazon_theme.gd")
+enum Screen { TITLE, MAIN, ONLINE, PILOTS, OPTIONS, HOWTO, PAUSE, CONFIRM_LEAVE, RESULTS, HUD }
+
+const VERSION := "v0.3"
+const MENU_LEFT := 84.0
+const INPUT_GUARD_MS := 220
 const KART_SCENE := preload("res://scenes/kart.tscn")
+const AmazonThemeScript := preload("res://scripts/amazon_theme.gd")
 
-const RESOLUTIONS := [
-	Vector2i(1920, 1080),
-	Vector2i(1600, 900),
-	Vector2i(1280, 720),
-	Vector2i(1024, 576),
-	Vector2i(800, 600)
-]
+var menu_camera: MenuCamera
 
-# Layout Principal (Lobby)
-var _lobby_screen: Control
-var _multiplayer_dialog: PanelContainer
+var _root: Control
+var _screens := {}
+var _first_focus := {}
+var _last_focus := {}
+var _current := -1
+var _stack: Array[int] = []
+var _in_session := false
+var _results_shown := false
+var _guard_until := 0
+var _t := 0.0
+var _debug_capture := false ## capturas de teste não gravam recorde
+
+var _shade: Control
+var _screen_root: Control
+var _prompts: PromptBar
+var _toast: PanelContainer
+var _toast_label: Label
+var _toast_tween: Tween
+var _rotate_overlay: Control
+var _touch: TouchControls
+var _music: AudioStreamPlayer
+
+var _title_logo: Control
+var _title_hint: Label
+var _main_info: Label
 var _name_edit: LineEdit
-var _top_name_edit: LineEdit
 var _addr_edit: LineEdit
-var _status_lbl: Label
+var _online_status: Label
+var _howto_rows: VBoxContainer
+var _results_stamp: Label
+var _results_time: Label
+var _results_best: Label
 
-# Coluna Esquerda: Botões estilo Crash
-var _btn_play: Button
-var _btn_heroes: Button
-var _btn_powers: Button
-var _btn_multiplayer: Button
-var _btn_controls: Button
-
-# Centro: Abas Alternáveis (Heróis 3D vs Painel de Controles & Ajustes)
-var _center_col: VBoxContainer
-var _center_heroes_view: VBoxContainer
-var _center_controls_view: VBoxContainer
-
-# Cenário 3D da Floresta do PS1 + Carrinho e Herói sem plataforma
-var _preview_viewport_container: SubViewportContainer
-var _preview_viewport: SubViewport
-var _preview_camera: Camera3D
-var _preview_jungle_root: Node3D
+# Pilotos
+var _pilot_selector: MenuItem
+var _pilot_title: Label
+var _pilot_rows: VBoxContainer
+var _pilot_stamp: Label
+var _preview_box: SubViewportContainer
+var _preview_vp: SubViewport
 var _preview_pivot: Node3D
 var _preview_kart: Kart
-var _char_btn_boitata: Button
-var _char_btn_et: Button
+var _preview_drag := false
+var _preview_yaw := 0.6
 
-# Controle Orbital da Câmera pelo Botão Direito do Mouse
-var _is_orbiting: bool = false
-var _cam_yaw: float = 0.0
-var _cam_pitch: float = deg_to_rad(12.0)
-var _cam_dist: float = 2.65
-var _cam_target: Vector3 = Vector3(0.0, 0.36, 0.0)
-
-# Controles & Configurações (Aba no lugar dos heróis)
-var _vol_slider: HSlider
-var _vol_lbl: Label
-var _window_mode_option: OptionButton
-var _res_option: OptionButton
-
-# Trilha Sonora Tema Floresta Amazônica do Lobby
-var _lobby_music_player: AudioStreamPlayer
-
-# Coluna Direita: Pergaminho do Aku Aku com Topo de Madeira e Badges
-var _aku_panel: PanelContainer
-var _wood_title: Label
-var _scroll_subtitle: Label
-var _badges_row: HBoxContainer
-var _passive_card: PanelContainer
-var _passive_name: Label
-var _passive_desc: Label
-var _damage_card: PanelContainer
-var _damage_name: Label
-var _damage_meta: Label
-var _damage_desc: Label
-var _barrier_card: PanelContainer
-var _barrier_name: Label
-var _barrier_meta: Label
-var _barrier_desc: Label
-var _confirm_btn: Button
-
-# Estado de seleção
-var _selected_character_id: String = CharacterDataScript.BOITATA
-
-# Menu de Pausa (In-Game)
-var _pause_menu: PanelContainer
-var _resume_btn: Button
-var _restart_btn: Button
-var _leave_btn: Button
-
-# HUD In-Game
+# HUD
 var _hud: Control
-var _info: Label
 var _timer_lbl: Label
-var _speed: Label
-var _slope_lbl: Label
-var _hint: Label
-var _skill_hud_panel: PanelContainer
-var _hud_char_banner: Label
-var _hud_passive_lbl: Label
-var _hud_damage_btn: PanelContainer
-var _hud_damage_lbl: Label
-var _hud_damage_cd_lbl: Label
-var _hud_barrier_btn: PanelContainer
-var _hud_barrier_lbl: Label
-var _hud_barrier_cd_lbl: Label
-
-# Controles Touch Mobile (Multi-Touch na tela para Celular/Tablet)
-var _is_mobile_touch: bool = false
-var _mobile_controls: Control
-var _touch_buttons: Dictionary = {} # action_name -> Control
-var _touch_action_state: Dictionary = {} # action_name -> bool
-var _touch_points: Dictionary = {} # finger_index -> Vector2
-var _mobile_dmg_lbl: Label
-var _mobile_bar_lbl: Label
-var _toggle_touch_btn: Button
+var _progress: ProgressRope
+var _speed_box: VBoxContainer
+var _speed_lbl: Label
+var _speed_unit: Label
+var _callout: Label
+var _callout_state := ""
+var _callout_hold := 0.0
+var _callout_tween: Tween
+var _stats_lbl: Label
+var _pause_btn: Button
+var _abilities: AbilityHud
 
 
 func _ready() -> void:
-	_is_mobile_touch = _detect_mobile_device()
-	_setup_lobby_music()
-	_build_lobby()
-	_build_multiplayer_dialog()
-	_build_pause_menu()
+	layer = 10
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	_root = Control.new()
+	_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.theme = UIStyle.build_theme()
+	add_child(_root)
+
+	_build_shade()
 	_build_hud()
-	_load_settings()
-	Net.status_changed.connect(set_status)
-	show_menu("")
+	_touch = TouchControls.new()
+	_root.add_child(_touch)
+	_screen_root = _full_rect_control()
+	_root.add_child(_screen_root)
+	_build_title()
+	_build_main()
+	_build_online()
+	_build_pilots()
+	_build_options()
+	_build_howto()
+	_build_pause()
+	_build_confirm()
+	_build_results()
+	_build_prompts()
+	_build_toast()
+	_build_rotate_overlay()
+
+	_music = AudioStreamPlayer.new()
+	_music.stream = AmazonThemeScript.generate_amazon_stream()
+	_music.volume_db = -4.0
+	add_child(_music)
+
+	Net.status_changed.connect(_on_net_status)
+	GameInput.device_changed.connect(func(_d: int) -> void:
+		_update_mode()
+		_refresh_device_texts())
+	Settings.changed.connect(_update_mode)
+	get_viewport().size_changed.connect(_update_rotate_overlay)
+	_refresh_device_texts()
+	_update_rotate_overlay()
+	_go(Screen.TITLE, false)
 
 
-func _detect_mobile_device() -> bool:
-	if OS.has_feature("mobile") or OS.has_feature("web_android") or OS.has_feature("web_ios"):
-		return true
-	if DisplayServer.is_touchscreen_available():
-		return true
-	if OS.has_feature("web"):
-		var js_touch = JavaScriptBridge.eval("Boolean(('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(navigator.userAgent))", true)
-		if bool(js_touch):
-			return true
-	return false
-
-
-func _input(event: InputEvent) -> void:
-	# Se o jogador tocar na tela em qualquer momento, ativa automaticamente o modo mobile!
-	if event is InputEventScreenTouch and not _is_mobile_touch:
-		_enable_mobile_controls(true)
-
-	if not _hud or not _hud.visible or _pause_menu.visible or not _mobile_controls or not _mobile_controls.visible:
-		return
-
-	if event is InputEventScreenTouch:
-		var st := event as InputEventScreenTouch
-		if st.pressed:
-			_touch_points[st.index] = st.position
-		else:
-			_touch_points.erase(st.index)
-		_sync_touch_controls()
-	elif event is InputEventScreenDrag:
-		var sd := event as InputEventScreenDrag
-		_touch_points[sd.index] = sd.position
-		_sync_touch_controls()
-	elif event is InputEventMouseButton:
-		var mb := event as InputEventMouseButton
-		if mb.button_index == MOUSE_BUTTON_LEFT:
-			if mb.pressed and _is_point_on_any_touch_btn(mb.position):
-				_touch_points[-1] = mb.position
-				_sync_touch_controls()
-			elif not mb.pressed and _touch_points.has(-1):
-				_touch_points.erase(-1)
-				_sync_touch_controls()
-	elif event is InputEventMouseMotion and _touch_points.has(-1):
-		var mm := event as InputEventMouseMotion
-		_touch_points[-1] = mm.position
-		_sync_touch_controls()
-
-
-func _setup_lobby_music() -> void:
-	_lobby_music_player = AudioStreamPlayer.new()
-	_lobby_music_player.bus = "Master"
-	_lobby_music_player.stream = AmazonThemeScript.generate_amazon_stream()
-	add_child(_lobby_music_player)
-
-
-func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton:
-		var mb := event as InputEventMouseButton
-		if mb.button_index == MOUSE_BUTTON_RIGHT and not mb.pressed:
-			_is_orbiting = false
-
-	if event.is_action_pressed("toggle_menu"):
-		if Net.in_session:
-			if _pause_menu.visible:
-				_hide_pause()
-			else:
-				_show_pause()
-			get_viewport().set_input_as_handled()
-
-
-func set_status(text: String) -> void:
-	if _status_lbl:
-		_status_lbl.text = text
-
+# =========================================================== API usada por main.gd
 
 func show_menu(reason: String) -> void:
-	_release_all_touch_actions()
-	_lobby_screen.visible = true
-	_pause_menu.visible = false
-	_hud.visible = false
-	_multiplayer_dialog.visible = false
+	_in_session = false
+	_results_shown = false
+	_stack.clear()
+	if _current != Screen.ONLINE:
+		_go(Screen.MAIN, false)
 	if reason != "":
-		set_status(reason)
-	_set_kart_controls(false)
-	_reload_preview_kart()
-	if _lobby_music_player and not _lobby_music_player.playing:
-		_lobby_music_player.play()
+		_online_status.text = reason
+		if _current != Screen.ONLINE:
+			_toast_msg(reason)
+	_update_mode()
 
 
 func show_hud() -> void:
-	_release_all_touch_actions()
-	_lobby_screen.visible = false
-	_pause_menu.visible = false
-	_multiplayer_dialog.visible = false
-	_hud.visible = true
-	_enable_mobile_controls(_is_mobile_touch)
-	_set_kart_controls(true)
-	if _lobby_music_player and _lobby_music_player.playing:
-		_lobby_music_player.stop()
+	_in_session = true
+	_results_shown = false
+	_stack.clear()
+	if _toast_tween:
+		_toast_tween.kill()
+	_toast.visible = false
+	_go(Screen.HUD, false)
+	_update_mode()
 
 
-func _show_pause() -> void:
-	_release_all_touch_actions()
-	_pause_menu.visible = true
-	_set_kart_controls(false)
-	_resume_btn.grab_focus()
+func set_status(text: String) -> void:
+	_on_net_status(text)
 
 
-func _hide_pause() -> void:
-	_release_all_touch_actions()
-	_pause_menu.visible = false
-	_set_kart_controls(true)
+# =========================================================== navegação
+
+func _go(s: int, push := true) -> void:
+	if _current == s:
+		return
+	if _current >= 0:
+		var fo := get_viewport().gui_get_focus_owner()
+		if fo and _screens.has(_current) and (_screens[_current] as Control).is_ancestor_of(fo):
+			_last_focus[_current] = fo
+		if push:
+			_stack.append(_current)
+		if _screens.has(_current):
+			(_screens[_current] as Control).visible = false
+	_current = s
+	_guard_until = Time.get_ticks_msec() + INPUT_GUARD_MS
+	if _screens.has(s):
+		_show_screen(s)
+	else:
+		var fo := get_viewport().gui_get_focus_owner()
+		if fo:
+			fo.release_focus()
+	_update_prompts()
+	_update_mode()
+
+
+func _back() -> void:
+	if _stack.is_empty():
+		return
+	_go(_stack.pop_back(), false)
+
+
+func _show_screen(s: int) -> void:
+	var c: Control = _screens[s]
+	c.visible = true
+	c.modulate.a = 0.0
+	create_tween().tween_property(c, "modulate:a", 1.0, 0.14)
+	var items := _menu_items_in(c)
+	for i in items.size():
+		items[i].pop_in(0.06 + i * 0.05)
+	if c.has_meta("sign"):
+		var sign: Control = c.get_meta("sign")
+		sign.rotation = deg_to_rad(-14.0)
+		sign.scale = Vector2(0.6, 0.6)
+		var tw := create_tween().set_parallel(true)
+		tw.tween_property(sign, "rotation", deg_to_rad(-2.5), 0.7).set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT)
+		tw.tween_property(sign, "scale", Vector2.ONE, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	if c.has_meta("board"):
+		var board: Control = c.get_meta("board")
+		var x := MENU_LEFT
+		board.offset_left = x - 90.0
+		create_tween().tween_property(board, "offset_left", x, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	match s:
+		Screen.MAIN:
+			_refresh_main_info()
+		Screen.HOWTO:
+			_refresh_device_texts()
+		Screen.PILOTS:
+			_refresh_pilot()
+	var f: Control = _last_focus.get(s, _first_focus.get(s, null))
+	if f and is_instance_valid(f):
+		f.grab_focus.call_deferred()
+
+
+func _menu_items_in(n: Node, out: Array[MenuItem] = []) -> Array[MenuItem]:
+	for c in n.get_children():
+		if c is MenuItem and (c as MenuItem).visible:
+			out.append(c)
+		_menu_items_in(c, out)
+	return out
+
+
+func _update_mode() -> void:
+	var in_hud := _current == Screen.HUD
+	_hud.visible = _in_session and (in_hud or _current == Screen.RESULTS)
+	_shade.visible = not in_hud
+	_touch.active = in_hud and _in_session and GameInput.device == GameInput.Device.TOUCH
+	_abilities.visible = in_hud and GameInput.device != GameInput.Device.TOUCH
+	_callout.visible = in_hud
+	_speed_box.visible = in_hud
+	_set_kart_controls(in_hud)
+	get_tree().paused = _in_session and _is_offline() and not in_hud and _current != Screen.RESULTS
+	if not _in_session and menu_camera and not menu_camera.current:
+		menu_camera.activate()
+	# Música da selva só nos menus (e só depois da primeira interação — exigência dos navegadores).
+	var want_music := not _in_session and _current != Screen.TITLE
+	if want_music and not _music.playing:
+		_music.play()
+	elif not want_music and _music.playing:
+		_music.stop()
+	_layout_hud()
+
+
+func _is_offline() -> bool:
+	var mp := multiplayer.multiplayer_peer
+	return mp == null or mp is OfflineMultiplayerPeer
 
 
 func _set_kart_controls(enabled: bool) -> void:
@@ -252,1851 +267,1145 @@ func _set_kart_controls(enabled: bool) -> void:
 		k.controls_enabled = enabled
 
 
-func _process(delta: float) -> void:
-	# Rotação suave contínua da câmera orbital no lobby (se o usuário não estiver arrastando com botão direito)
-	if _lobby_screen.visible and _center_heroes_view and _center_heroes_view.visible:
-		if not _is_orbiting:
-			_cam_yaw += delta * 0.16
-			_update_preview_camera()
-
-	if not _hud.visible:
+func _input(event: InputEvent) -> void:
+	# Evita "clique fantasma": o mesmo toque/tecla que trocou de tela não aciona a próxima.
+	if _current == Screen.HUD or Time.get_ticks_msec() >= _guard_until:
 		return
-
-	var kart := get_tree().get_first_node_in_group("local_kart") as Kart
-	var world := get_tree().current_scene.get_node_or_null("World")
-	var role := "Treino offline"
-	var mp := multiplayer.multiplayer_peer
-	if mp and not (mp is OfflineMultiplayerPeer):
-		role = "Host" if multiplayer.is_server() else "Cliente"
-	var players := get_tree().get_nodes_in_group("karts").size()
-	var ping := "" if Net.ping_ms < 0 else " · ping %d ms" % Net.ping_ms
-	_info.text = "%s · %d no morro%s · %d FPS" % [role, players, ping, Engine.get_frames_per_second()]
-
-	if kart:
-		kart.controls_enabled = not _pause_menu.visible
-		_speed.text = "%d km/h" % roundi(kart.get_speed_kmh())
-
-		var prog := 0.0
-		if world and world.has_method("compute_progress"):
-			prog = world.compute_progress(kart.ball.global_position) * 100.0
-		var t := kart.finished_time if kart.finished_time > 0.0 else kart.race_time
-		var mins := int(t) / 60
-		var secs := fmod(t, 60.0)
-		if kart.finished_time > 0.0:
-			_timer_lbl.text = "CHEGOU! Tempo: %02d:%05.2f  (Esc -> Menu)" % [mins, secs]
-			_timer_lbl.modulate = Color(1.0, 0.88, 0.25)
-		else:
-			_timer_lbl.text = "Descida: %0.0f%%  ·  Tempo: %02d:%05.2f" % [prog, mins, secs]
-			_timer_lbl.modulate = Color.WHITE
-
-		if not kart.grounded and kart.air_time > 0.14:
-			_slope_lbl.text = "NO AR! (gravidade folclórica)"
-			_slope_lbl.modulate = Color(1.0, 0.55, 0.2)
-		elif kart.slope_grade > 0.095:
-			_slope_lbl.text = "DECLIVE FORTE! +++ VELOCIDADE"
-			_slope_lbl.modulate = Color(0.25, 0.9, 1.0)
-		elif kart.slope_grade < -0.025:
-			_slope_lbl.text = "ACLIVE / LOMBADA! (atenção ao relevo)"
-			_slope_lbl.modulate = Color(1.0, 0.65, 0.25)
-		else:
-			_slope_lbl.text = ""
-
-		_update_hud_abilities(kart)
-
-
-func _update_hud_abilities(kart: Kart) -> void:
-	var cdata: Dictionary = CharacterDataScript.get_character(kart.character_id)
-	_hud_char_banner.text = "%s %s" % [cdata.passive.icon, cdata.name]
-	_hud_char_banner.modulate = cdata.theme_color
-	_hud_passive_lbl.text = "Passiva: %s" % cdata.passive.name
-
-	if kart.damage_cooldown <= 0.0:
-		_hud_damage_cd_lbl.text = "PRONTA" if _is_mobile_touch else "PRONTA [Q]"
-		_hud_damage_cd_lbl.modulate = Color(0.35, 1.0, 0.45)
-		if _mobile_dmg_lbl:
-			_mobile_dmg_lbl.text = "💥 DANO\nPRONTA"
-			_mobile_dmg_lbl.modulate = Color(1.0, 0.92, 0.4)
-	else:
-		_hud_damage_cd_lbl.text = "%.1fs" % kart.damage_cooldown if _is_mobile_touch else "[Q] %.1fs" % kart.damage_cooldown
-		_hud_damage_cd_lbl.modulate = Color(1.0, 0.7, 0.3)
-		if _mobile_dmg_lbl:
-			_mobile_dmg_lbl.text = "💥 DANO\n%.1fs" % kart.damage_cooldown
-			_mobile_dmg_lbl.modulate = Color(1.0, 0.6, 0.35)
-
-	if kart.is_barrier_active():
-		_hud_barrier_cd_lbl.text = "ATIVA! %.1fs" % kart.barrier_time_left
-		_hud_barrier_cd_lbl.modulate = Color(0.2, 0.95, 1.0)
-		if _mobile_bar_lbl:
-			_mobile_bar_lbl.text = "🛡️ ESCUDO\nATIVO!"
-			_mobile_bar_lbl.modulate = Color(0.2, 0.98, 1.0)
-	elif kart.barrier_cooldown <= 0.0:
-		_hud_barrier_cd_lbl.text = "PRONTA" if _is_mobile_touch else "PRONTA [E]"
-		_hud_barrier_cd_lbl.modulate = Color(0.35, 1.0, 0.45)
-		if _mobile_bar_lbl:
-			_mobile_bar_lbl.text = "🛡️ ESCUDO\nPRONTO"
-			_mobile_bar_lbl.modulate = Color(0.45, 0.95, 1.0)
-	else:
-		_hud_barrier_cd_lbl.text = "%.1fs" % kart.barrier_cooldown if _is_mobile_touch else "[E] %.1fs" % kart.barrier_cooldown
-		_hud_barrier_cd_lbl.modulate = Color(1.0, 0.7, 0.3)
-		if _mobile_bar_lbl:
-			_mobile_bar_lbl.text = "🛡️ ESCUDO\n%.1fs" % kart.barrier_cooldown
-			_mobile_bar_lbl.modulate = Color(1.0, 0.65, 0.35)
-
-
-# ================================================================= CONSTRUÇÃO DO LOBBY
-
-func _build_lobby() -> void:
-	_lobby_screen = Control.new()
-	_lobby_screen.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(_lobby_screen)
-
-	# Fundo: Floresta Tropical de PS1 (Degradê de copa de árvores e céu tropical)
-	var bg := ColorRect.new()
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg.color = Color(0.06, 0.22, 0.14, 0.95) # Verde floresta densa
-	_lobby_screen.add_child(bg)
-
-	# Layout geral vertical
-	var main_vbox := VBoxContainer.new()
-	main_vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
-	main_vbox.add_theme_constant_override("separation", 10)
-	main_vbox.offset_left = 20
-	main_vbox.offset_top = 12
-	main_vbox.offset_right = -20
-	main_vbox.offset_bottom = -12
-	_lobby_screen.add_child(main_vbox)
-
-	# 1. Top Bar com Perfil estilo Crash
-	_build_top_bar(main_vbox)
-
-	# 2. Área Central: 3 Colunas (Menu Esquerdo, Centro com Heróis 3D ou Controles, Pergaminho do Aku Aku à Direita)
-	var content_row := HBoxContainer.new()
-	content_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	content_row.add_theme_constant_override("separation", 16)
-	main_vbox.add_child(content_row)
-
-	# Coluna Esquerda: Botões
-	_build_left_column(content_row)
-
-	# Coluna Central: Floresta Tropical 3D (Botão Direito gira câmera) OU Aba de Controles
-	_build_center_column(content_row)
-
-	# Coluna Direita: Caixa de Texto Idêntica ao Print do Aku Aku
-	_build_right_column(content_row)
-
-	# Rodapé de Legenda Externa (como no print)
-	var footer_lbl := Label.new()
-	footer_lbl.text = "Jogo entre plataformas habilitado. Você pode encontrar jogadores de outras plataformas."
-	footer_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	footer_lbl.add_theme_font_size_override("font_size", 11)
-	footer_lbl.modulate = Color(0.75, 0.9, 1.0, 0.75)
-	main_vbox.add_child(footer_lbl)
-
-
-func _build_top_bar(parent: Control) -> void:
-	var top_bar := HBoxContainer.new()
-	top_bar.custom_minimum_size = Vector2(0, 52)
-	parent.add_child(top_bar)
-
-	var logo_box := VBoxContainer.new()
-	logo_box.add_theme_constant_override("separation", -3)
-	top_bar.add_child(logo_box)
-
-	var title_lbl := Label.new()
-	title_lbl.text = "ROLIMÃ PUMPTRACK"
-	title_lbl.add_theme_font_size_override("font_size", 26)
-	title_lbl.add_theme_color_override("font_color", Color(1.0, 0.82, 0.15))
-	title_lbl.add_theme_constant_override("outline_size", 6)
-	title_lbl.add_theme_color_override("font_outline_color", Color(0.08, 0.22, 0.52))
-	logo_box.add_child(title_lbl)
-
-	var sub_lbl := Label.new()
-	sub_lbl.text = "🌴 FLORESTA DO FOLCLORE BRASILEIRO 🌴"
-	sub_lbl.add_theme_font_size_override("font_size", 11)
-	sub_lbl.add_theme_color_override("font_color", Color(0.25, 0.92, 0.45))
-	logo_box.add_child(sub_lbl)
-
-	var spacer := Control.new()
-	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	top_bar.add_child(spacer)
-
-	# Card de Perfil estilo Crash
-	var profile_card := PanelContainer.new()
-	var psb := StyleBoxFlat.new()
-	psb.bg_color = Color(0.08, 0.18, 0.38, 0.92)
-	psb.set_corner_radius_all(10)
-	psb.border_width_left = 2
-	psb.border_width_right = 2
-	psb.border_width_top = 2
-	psb.border_width_bottom = 2
-	psb.border_color = Color(1.0, 0.82, 0.15)
-	psb.set_content_margin_all(6)
-	profile_card.add_theme_stylebox_override("panel", psb)
-	top_bar.add_child(profile_card)
-
-	var prof_row := HBoxContainer.new()
-	prof_row.add_theme_constant_override("separation", 8)
-	profile_card.add_child(prof_row)
-
-	var avatar_icon := Label.new()
-	avatar_icon.text = "🇧🇷"
-	avatar_icon.add_theme_font_size_override("font_size", 22)
-	prof_row.add_child(avatar_icon)
-
-	var prof_col := VBoxContainer.new()
-	prof_col.add_theme_constant_override("separation", 1)
-	prof_row.add_child(prof_col)
-
-	var name_row := HBoxContainer.new()
-	name_row.add_theme_constant_override("separation", 4)
-	prof_col.add_child(name_row)
-
-	var piloto_lbl := Label.new()
-	piloto_lbl.text = "Piloto:"
-	piloto_lbl.add_theme_font_size_override("font_size", 11)
-	piloto_lbl.modulate = Color(1, 1, 1, 0.6)
-	name_row.add_child(piloto_lbl)
-
-	_top_name_edit = LineEdit.new()
-	_top_name_edit.placeholder_text = "Seu Nome"
-	_top_name_edit.text = "Piloto"
-	_top_name_edit.max_length = 16
-	_top_name_edit.custom_minimum_size = Vector2(100, 22)
-	_top_name_edit.text_changed.connect(func(new_text: String):
-		if _name_edit:
-			_name_edit.text = new_text
-		_save_settings()
-	)
-	name_row.add_child(_top_name_edit)
-
-	var xp_lbl := Label.new()
-	xp_lbl.text = "⭐ NÍVEL 1 · SELVA DO MORRO"
-	xp_lbl.add_theme_font_size_override("font_size", 9)
-	xp_lbl.modulate = Color(0.25, 0.9, 1.0)
-	prof_col.add_child(xp_lbl)
-
-
-func _build_left_column(parent: Control) -> void:
-	var left_col := VBoxContainer.new()
-	left_col.custom_minimum_size = Vector2(230, 0)
-	left_col.add_theme_constant_override("separation", 10)
-	parent.add_child(left_col)
-
-	# 1. BOTÃO JOGAR (Grande, Amarelo com Borda Azul como no Crash)
-	_btn_play = _create_crash_button("JOGAR", true, true)
-	_btn_play.custom_minimum_size = Vector2(230, 64)
-	_btn_play.pressed.connect(_on_practice)
-	left_col.add_child(_btn_play)
-
-	# 2. BOTÃO HERÓIS (Aba de Heróis em Destaque Dourado/Selecionado)
-	_btn_heroes = _create_crash_button("✦ HERÓIS ✦", true, false)
-	_btn_heroes.pressed.connect(_show_heroes_tab)
-	left_col.add_child(_btn_heroes)
-
-	# 3. BOTÃO PODERES
-	_btn_powers = _create_crash_button("PODERES", false, false)
-	_btn_powers.pressed.connect(_show_powers_focus)
-	left_col.add_child(_btn_powers)
-
-	# 4. BOTÃO MULTIPLAYER
-	_btn_multiplayer = _create_crash_button("MULTIPLAYER", false, false)
-	_btn_multiplayer.pressed.connect(func(): _multiplayer_dialog.visible = true)
-	left_col.add_child(_btn_multiplayer)
-
-	# 5. BOTÃO CONTROLES (Abre a aba no lugar dos personagens)
-	_btn_controls = _create_crash_button("CONTROLES", false, false)
-	_btn_controls.pressed.connect(_show_controls_tab)
-	left_col.add_child(_btn_controls)
-
-	var spacer := Control.new()
-	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	left_col.add_child(spacer)
-
-	# Banner inferior esquerdo (Card Beta do Crash adaptado)
-	var beta_banner := PanelContainer.new()
-	var bsb := StyleBoxFlat.new()
-	bsb.bg_color = Color(0.06, 0.16, 0.18, 0.92)
-	bsb.set_corner_radius_all(10)
-	bsb.border_width_left = 3
-	bsb.border_color = Color(0.2, 0.9, 0.45)
-	bsb.set_content_margin_all(8)
-	beta_banner.add_theme_stylebox_override("panel", bsb)
-	left_col.add_child(beta_banner)
-
-	var b_vbox := VBoxContainer.new()
-	b_vbox.add_theme_constant_override("separation", 2)
-	beta_banner.add_child(b_vbox)
-
-	var b_tag := Label.new()
-	b_tag.text = "SELVA BRASILEIRA"
-	b_tag.add_theme_font_size_override("font_size", 11)
-	b_tag.add_theme_color_override("font_color", Color(1.0, 0.82, 0.15))
-	b_vbox.add_child(b_tag)
-
-	_status_lbl = Label.new()
-	_status_lbl.text = "Boitatá & ET nas pistas de rolimã da floresta!"
-	_status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_status_lbl.add_theme_font_size_override("font_size", 10)
-	_status_lbl.modulate = Color(1, 1, 1, 0.75)
-	b_vbox.add_child(_status_lbl)
-
-
-# ================================================================= COLUNA CENTRAL (HERÓIS 3D OU CONTROLES)
-
-func _build_center_column(parent: Control) -> void:
-	_center_col = VBoxContainer.new()
-	_center_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_center_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_center_col.add_theme_constant_override("separation", 8)
-	parent.add_child(_center_col)
-
-	# --- ABA 1: CENÁRIO 3D DOS HERÓIS NA SELVA (COM ROTAÇÃO POR BOTÃO DIREITO) ---
-	_center_heroes_view = VBoxContainer.new()
-	_center_heroes_view.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_center_heroes_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_center_heroes_view.add_theme_constant_override("separation", 8)
-	_center_col.add_child(_center_heroes_view)
-
-	# Container de Viewport 3D
-	_preview_viewport_container = SubViewportContainer.new()
-	_preview_viewport_container.stretch = true
-	_preview_viewport_container.mouse_filter = Control.MOUSE_FILTER_STOP
-	_preview_viewport_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_preview_viewport_container.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_preview_viewport_container.custom_minimum_size = Vector2(340, 360)
-	_preview_viewport_container.gui_input.connect(_on_preview_gui_input)
-	_center_heroes_view.add_child(_preview_viewport_container)
-
-	_preview_viewport = SubViewport.new()
-	_preview_viewport.own_world_3d = true
-	_preview_viewport.transparent_bg = true
-	_preview_viewport.msaa_3d = Viewport.MSAA_2X
-	_preview_viewport_container.add_child(_preview_viewport)
-
-	# Câmera 3D orbital
-	_preview_camera = Camera3D.new()
-	_preview_viewport.add_child(_preview_camera)
-	_preview_camera.current = true
-	_update_preview_camera()
-
-	# Dica visual flutuante sobre a rotação da câmera
-	var cam_hint := Label.new()
-	cam_hint.text = "🖱️ Botão Direito: Arraste para Girar o Cenário 3D  ·  Roda: Zoom"
-	cam_hint.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	cam_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	cam_hint.add_theme_font_size_override("font_size", 11)
-	cam_hint.add_theme_constant_override("outline_size", 4)
-	cam_hint.add_theme_color_override("font_outline_color", Color(0.04, 0.1, 0.2))
-	cam_hint.modulate = Color(1.0, 0.9, 0.35, 0.9)
-	cam_hint.position = Vector2(0, -24)
-	_preview_viewport_container.add_child(cam_hint)
-
-	# Iluminação Quente de Selva PS1 (Crash Bandicoot 1 / Jungle Rollers)
-	var light_sun := DirectionalLight3D.new()
-	light_sun.look_at_from_position(Vector3(2.5, 4.5, 2.8), Vector3.ZERO, Vector3.UP)
-	light_sun.light_color = Color(1.0, 0.95, 0.8)
-	light_sun.light_energy = 1.35
-	_preview_viewport.add_child(light_sun)
-
-	var light_fill := OmniLight3D.new()
-	light_fill.position = Vector3(-2.0, 1.8, 1.2)
-	light_fill.light_color = Color(0.25, 0.75, 0.45) # Brilho verde-esmeralda da mata
-	light_fill.light_energy = 0.85
-	light_fill.omni_range = 7.0
-	_preview_viewport.add_child(light_fill)
-
-	# Raiz da Floresta do PS1 (SEM NENHUMA PLATAFORMA ARTIFICIAL!)
-	_preview_jungle_root = Node3D.new()
-	_preview_viewport.add_child(_preview_jungle_root)
-	_build_ps1_jungle(_preview_jungle_root)
-
-	# Pivot onde o kart fica montado diretamente na trilha da floresta
-	_preview_pivot = Node3D.new()
-	_preview_pivot.position = Vector3(0, 0.12, 0)
-	_preview_viewport.add_child(_preview_pivot)
-
-	# Seletor de Heróis na base
-	var char_tabs_row := HBoxContainer.new()
-	char_tabs_row.add_theme_constant_override("separation", 12)
-	_center_heroes_view.add_child(char_tabs_row)
-
-	_char_btn_boitata = _create_crash_button("🔥 COBRA BOITATÁ", false, false)
-	_char_btn_boitata.custom_minimum_size = Vector2(0, 46)
-	_char_btn_boitata.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_char_btn_boitata.pressed.connect(func():
-		_select_character(CharacterDataScript.BOITATA)
-		_show_heroes_tab()
-	)
-	char_tabs_row.add_child(_char_btn_boitata)
-
-	_char_btn_et = _create_crash_button("🛸 ET CLÁSSICO", false, false)
-	_char_btn_et.custom_minimum_size = Vector2(0, 46)
-	_char_btn_et.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_char_btn_et.pressed.connect(func():
-		_select_character(CharacterDataScript.ET_VARGINHA)
-		_show_heroes_tab()
-	)
-	char_tabs_row.add_child(_char_btn_et)
-
-	# --- ABA 2: PAINEL DE CONTROLES & CONFIGURAÇÕES (NO LUGAR DOS HERÓIS) ---
-	_build_center_controls_view(_center_col)
-
-
-## Trata o clique do botão direito, scroll e arrasto touch para girar a câmera do cenário 3D
-func _on_preview_gui_input(event: InputEvent) -> void:
-	if event is InputEventScreenTouch:
-		var st := event as InputEventScreenTouch
-		_is_orbiting = st.pressed
-	elif event is InputEventScreenDrag:
-		var sd := event as InputEventScreenDrag
-		_is_orbiting = true
-		_cam_yaw -= sd.relative.x * 0.0085
-		_cam_pitch = clampf(_cam_pitch - sd.relative.y * 0.0085, deg_to_rad(-12.0), deg_to_rad(65.0))
-		_update_preview_camera()
-	elif event is InputEventMouseButton:
-		var mb := event as InputEventMouseButton
-		if mb.button_index == MOUSE_BUTTON_RIGHT or mb.button_index == MOUSE_BUTTON_LEFT:
-			_is_orbiting = mb.pressed
-		elif mb.button_index == MOUSE_BUTTON_WHEEL_UP and mb.pressed:
-			_cam_dist = clampf(_cam_dist - 0.22, 1.2, 5.8)
-			_update_preview_camera()
-		elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN and mb.pressed:
-			_cam_dist = clampf(_cam_dist + 0.22, 1.2, 5.8)
-			_update_preview_camera()
-	elif event is InputEventMouseMotion and _is_orbiting:
-		var mm := event as InputEventMouseMotion
-		_cam_yaw -= mm.relative.x * 0.0075
-		_cam_pitch = clampf(_cam_pitch - mm.relative.y * 0.0075, deg_to_rad(-12.0), deg_to_rad(65.0))
-		_update_preview_camera()
-
-
-func _update_preview_camera() -> void:
-	if not _preview_camera or not _preview_camera.is_inside_tree():
+	if event is InputEventMouseButton or event is InputEventScreenTouch or event is InputEventJoypadButton \
+			or (event is InputEventKey and event.is_action("ui_accept")):
+		get_viewport().set_input_as_handled()
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if _current == Screen.TITLE:
+		var pressed := (event is InputEventKey or event is InputEventJoypadButton or event is InputEventMouseButton \
+				or event is InputEventScreenTouch) and event.is_pressed() and not event.is_echo()
+		if pressed:
+			_go(Screen.MAIN, false)
+			get_viewport().set_input_as_handled()
 		return
-	var x: float = _cam_dist * sin(_cam_yaw) * cos(_cam_pitch)
-	var y: float = _cam_target.y + _cam_dist * sin(_cam_pitch)
-	var z: float = _cam_dist * cos(_cam_yaw) * cos(_cam_pitch)
-	_preview_camera.look_at_from_position(Vector3(x, y, z), _cam_target, Vector3.UP)
-
-
-## Constrói a aba de Controles com o mesmo fundo, madeira de Aku Aku e pergaminho do print
-func _build_center_controls_view(parent: Control) -> void:
-	_center_controls_view = VBoxContainer.new()
-	_center_controls_view.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_center_controls_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_center_controls_view.add_theme_constant_override("separation", 0)
-	_center_controls_view.visible = false
-	parent.add_child(_center_controls_view)
-
-	# 1. TOPO DE MADEIRA DO AKU AKU
-	var wood_header := PanelContainer.new()
-	wood_header.custom_minimum_size = Vector2(0, 54)
-	var wsb := StyleBoxFlat.new()
-	wsb.bg_color = Color(0.48, 0.28, 0.14)
-	wsb.border_width_top = 3
-	wsb.border_width_bottom = 3
-	wsb.border_width_left = 3
-	wsb.border_width_right = 3
-	wsb.border_color = Color(0.32, 0.18, 0.08)
-	wsb.set_corner_radius_all(6)
-	wsb.set_content_margin_all(8)
-	wood_header.add_theme_stylebox_override("panel", wsb)
-	_center_controls_view.add_child(wood_header)
-
-	var wood_row := HBoxContainer.new()
-	wood_row.add_theme_constant_override("separation", 8)
-	wood_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	wood_header.add_child(wood_row)
-
-	var left_aku := Label.new()
-	left_aku.text = "🔩 🎭🪶"
-	left_aku.add_theme_font_size_override("font_size", 18)
-	wood_row.add_child(left_aku)
-
-	var wood_title := Label.new()
-	wood_title.text = "CONFIGURAÇÕES & CONTROLES"
-	wood_title.add_theme_font_size_override("font_size", 16)
-	wood_title.add_theme_color_override("font_color", Color(1.0, 0.88, 0.15))
-	wood_title.add_theme_constant_override("outline_size", 6)
-	wood_title.add_theme_color_override("font_outline_color", Color(0.2, 0.08, 0.02))
-	wood_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	wood_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	wood_row.add_child(wood_title)
-
-	var right_feathers := Label.new()
-	right_feathers.text = "🪶 🔩"
-	right_feathers.add_theme_font_size_override("font_size", 18)
-	wood_row.add_child(right_feathers)
-
-	# 2. CORPO DO PERGAMINHO BEGE DESENROLADO
-	var parchment_body := PanelContainer.new()
-	parchment_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	var psb := StyleBoxFlat.new()
-	psb.bg_color = Color(0.96, 0.91, 0.82)
-	psb.border_width_left = 3
-	psb.border_width_right = 3
-	psb.border_width_bottom = 4
-	psb.border_color = Color(0.78, 0.68, 0.52)
-	psb.set_corner_radius_all(4)
-	psb.set_content_margin_all(14)
-	parchment_body.add_theme_stylebox_override("panel", psb)
-	_center_controls_view.add_child(parchment_body)
-
-	var p_vbox := VBoxContainer.new()
-	p_vbox.add_theme_constant_override("separation", 10)
-	parchment_body.add_child(p_vbox)
-
-	var scroll_sub := Label.new()
-	scroll_sub.text = "Ajuste o som da mata amazônica, gráficos e domine os comandos do kart"
-	scroll_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	scroll_sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	scroll_sub.add_theme_font_size_override("font_size", 12)
-	scroll_sub.add_theme_color_override("font_color", Color(0.32, 0.22, 0.14))
-	p_vbox.add_child(scroll_sub)
-
-	# Fileira de Badges de Configurações
-	var c_badges := HBoxContainer.new()
-	c_badges.alignment = BoxContainer.ALIGNMENT_CENTER
-	c_badges.add_theme_constant_override("separation", 6)
-	p_vbox.add_child(c_badges)
-	_build_badges_row(c_badges)
-
-	# Área de Scroll interna
-	var scroll_area := ScrollContainer.new()
-	scroll_area.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll_area.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	p_vbox.add_child(scroll_area)
-
-	var card_list := VBoxContainer.new()
-	card_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	card_list.add_theme_constant_override("separation", 8)
-	scroll_area.add_child(card_list)
-
-	# --- CARD 1: VOLUME & TRILHA DA FLORESTA AMAZÔNICA ---
-	var vol_card := _create_parchment_card(card_list, Color(0.2, 0.55, 0.3))
-	var vol_vb := vol_card.get_child(0) as VBoxContainer
-
-	var vol_title := Label.new()
-	vol_title.text = "🎵 VOLUME GERAL & TRILHA AMAZÔNICA"
-	vol_title.add_theme_font_size_override("font_size", 12)
-	vol_title.add_theme_color_override("font_color", Color(0.12, 0.42, 0.2))
-	vol_vb.add_child(vol_title)
-
-	var vol_row := HBoxContainer.new()
-	vol_row.add_theme_constant_override("separation", 8)
-	vol_vb.add_child(vol_row)
-
-	var vol_ico_down := Label.new()
-	vol_ico_down.text = "🔈"
-	vol_ico_down.add_theme_font_size_override("font_size", 15)
-	vol_row.add_child(vol_ico_down)
-
-	_vol_slider = HSlider.new()
-	_vol_slider.min_value = 0.0
-	_vol_slider.max_value = 1.0
-	_vol_slider.step = 0.01
-	_vol_slider.value = 0.8
-	_vol_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_vol_slider.value_changed.connect(_on_volume_changed)
-	vol_row.add_child(_vol_slider)
-
-	var vol_ico_up := Label.new()
-	vol_ico_up.text = "🔊"
-	vol_ico_up.add_theme_font_size_override("font_size", 15)
-	vol_row.add_child(vol_ico_up)
-
-	_vol_lbl = Label.new()
-	_vol_lbl.text = "80%"
-	_vol_lbl.custom_minimum_size = Vector2(40, 0)
-	_vol_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_vol_lbl.add_theme_font_size_override("font_size", 12)
-	_vol_lbl.add_theme_color_override("font_color", Color(0.24, 0.18, 0.12))
-	vol_row.add_child(_vol_lbl)
-
-	var vol_desc := Label.new()
-	vol_desc.text = "Ajusta o volume do tema amazônico (tambores, flauta indígena e pássaros) e dos rolamentos de aço."
-	vol_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	vol_desc.add_theme_font_size_override("font_size", 10)
-	vol_desc.add_theme_color_override("font_color", Color(0.35, 0.26, 0.16))
-	vol_vb.add_child(vol_desc)
-
-	# --- CARD 2: RESOLUÇÃO E MODO DE TELA (JANELA OU TELA CHEIA) ---
-	var video_card := _create_parchment_card(card_list, Color(0.18, 0.45, 0.75))
-	var video_vb := video_card.get_child(0) as VBoxContainer
-
-	var video_title := Label.new()
-	video_title.text = "🖥️ MODO DE TELA & RESOLUÇÃO"
-	video_title.add_theme_font_size_override("font_size", 12)
-	video_title.add_theme_color_override("font_color", Color(0.12, 0.35, 0.65))
-	video_vb.add_child(video_title)
-
-	var mode_row := HBoxContainer.new()
-	mode_row.add_theme_constant_override("separation", 8)
-	video_vb.add_child(mode_row)
-
-	var mode_lbl := Label.new()
-	mode_lbl.text = "Exibição:"
-	mode_lbl.add_theme_font_size_override("font_size", 11)
-	mode_lbl.add_theme_color_override("font_color", Color(0.24, 0.18, 0.12))
-	mode_row.add_child(mode_lbl)
-
-	_window_mode_option = OptionButton.new()
-	_window_mode_option.add_item("Modo Janela (Windowed)", 0)
-	_window_mode_option.add_item("Tela Cheia (Fullscreen)", 1)
-	_window_mode_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_window_mode_option.item_selected.connect(_on_window_mode_selected)
-	mode_row.add_child(_window_mode_option)
-
-	var res_row := HBoxContainer.new()
-	res_row.add_theme_constant_override("separation", 8)
-	video_vb.add_child(res_row)
-
-	var res_lbl := Label.new()
-	res_lbl.text = "Resolução:"
-	res_lbl.add_theme_font_size_override("font_size", 11)
-	res_lbl.add_theme_color_override("font_color", Color(0.24, 0.18, 0.12))
-	res_row.add_child(res_lbl)
-
-	_res_option = OptionButton.new()
-	_res_option.add_item("1920 × 1080 (Full HD 16:9)", 0)
-	_res_option.add_item("1600 × 900 (HD+ 16:9)", 1)
-	_res_option.add_item("1280 × 720 (HD Padrão)", 2)
-	_res_option.add_item("1024 × 576 (Retrô 16:9)", 3)
-	_res_option.add_item("800 × 600 (Retrô 4:3)", 4)
-	_res_option.selected = 2
-	_res_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_res_option.item_selected.connect(_on_resolution_selected)
-	res_row.add_child(_res_option)
-
-	var video_desc := Label.new()
-	video_desc.text = "Alterne rapidamente entre modo janela e tela cheia e selecione a resolução desejada."
-	video_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	video_desc.add_theme_font_size_override("font_size", 10)
-	video_desc.add_theme_color_override("font_color", Color(0.35, 0.26, 0.16))
-	video_vb.add_child(video_desc)
-
-	# --- CARD 3: MAPA DE CONTROLES DO KART E CÂMERA ---
-	var ctrl_card := _create_parchment_card(card_list, Color(0.72, 0.25, 0.15))
-	var ctrl_vb := ctrl_card.get_child(0) as VBoxContainer
-
-	var ctrl_title := Label.new()
-	ctrl_title.text = "🎮 MAPA DE CONTROLES & CÂMERA 3D"
-	ctrl_title.add_theme_font_size_override("font_size", 12)
-	ctrl_title.add_theme_color_override("font_color", Color(0.68, 0.18, 0.1))
-	ctrl_vb.add_child(ctrl_title)
-
-	var ctrl_text := Label.new()
-	ctrl_text.text = """• W / S ou Setas Cima / Baixo: Acelerar e Frear / Marcha Ré
-• A / D ou Setas Esquerda / Direita: Esterçar caibro dianteiro
-• Tecla [Q] ou Botão X (Controle): Disparar Poder de DANO
-• Tecla [E] ou Botão Y (Controle): Ativar BARREIRA protetora
-• Tecla [R]: Respawn imediato no topo da ladeira
-• Tecla [Esc]: Abrir menu de pausa e voltar ao lobby
-• 🖱️ Botão Direito do Mouse: Clique e arraste para GIRAR e olhar o cenário em volta!
-• 🛞 Roda do Mouse: Zoom in / Zoom out da câmera do lobby"""
-	ctrl_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	ctrl_text.add_theme_font_size_override("font_size", 10)
-	ctrl_text.add_theme_color_override("font_color", Color(0.24, 0.18, 0.12))
-	ctrl_vb.add_child(ctrl_text)
-
-	# Ponta enrolada da base
-	var roll_bottom := PanelContainer.new()
-	roll_bottom.custom_minimum_size = Vector2(0, 10)
-	var rsb := StyleBoxFlat.new()
-	rsb.bg_color = Color(0.82, 0.72, 0.58)
-	rsb.set_corner_radius_all(5)
-	roll_bottom.add_theme_stylebox_override("panel", rsb)
-	_center_controls_view.add_child(roll_bottom)
-
-	# Botão de voltar para seleção de heróis
-	var back_btn := _create_crash_button("✦ VOLTAR PARA SELEÇÃO DE HERÓIS ✦", true, false)
-	back_btn.custom_minimum_size = Vector2(0, 44)
-	back_btn.pressed.connect(_show_heroes_tab)
-	_center_controls_view.add_child(back_btn)
-
-
-func _show_heroes_tab() -> void:
-	if _center_heroes_view and _center_controls_view:
-		_center_heroes_view.visible = true
-		_center_controls_view.visible = false
-	_apply_crash_button_style(_btn_heroes, true, false)
-	_apply_crash_button_style(_btn_controls, false, false)
-	_reload_preview_kart()
-	set_status("Heróis: Boitatá & ET Clássico! Clique com o botão direito e arraste para olhar a selva.")
-
-
-func _show_controls_tab() -> void:
-	if _center_heroes_view and _center_controls_view:
-		_center_heroes_view.visible = false
-		_center_controls_view.visible = true
-	_apply_crash_button_style(_btn_heroes, false, false)
-	_apply_crash_button_style(_btn_controls, true, false)
-	set_status("Aba de Controles & Configurações aberta no lugar dos heróis!")
-
-
-func _on_volume_changed(val: float) -> void:
-	var bus_idx := AudioServer.get_bus_index("Master")
-	if bus_idx >= 0:
-		if val <= 0.01:
-			AudioServer.set_bus_mute(bus_idx, true)
-		else:
-			AudioServer.set_bus_mute(bus_idx, false)
-			AudioServer.set_bus_volume_db(bus_idx, linear_to_db(val))
-	if _vol_lbl:
-		_vol_lbl.text = "%d%%" % int(round(val * 100.0))
-	_save_settings()
-
-
-func _on_window_mode_selected(index: int) -> void:
-	if DisplayServer.get_name() != "headless":
-		if index == 1:
-			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
-		else:
-			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
-			if _res_option:
-				var res_idx: int = _res_option.selected
-				if res_idx >= 0 and res_idx < RESOLUTIONS.size():
-					var res: Vector2i = RESOLUTIONS[res_idx]
-					DisplayServer.window_set_size(res)
-					var screen_size: Vector2i = DisplayServer.screen_get_size()
-					DisplayServer.window_set_position((screen_size - res) / 2)
-	_save_settings()
-
-
-func _on_resolution_selected(index: int) -> void:
-	if index < 0 or index >= RESOLUTIONS.size():
+	if _current == Screen.HUD:
+		if event.is_action_pressed("toggle_menu"):
+			_go(Screen.PAUSE)
+			get_viewport().set_input_as_handled()
 		return
-	var res: Vector2i = RESOLUTIONS[index]
-	if DisplayServer.get_name() != "headless":
-		DisplayServer.window_set_size(res)
-		var is_fullscreen: bool = (DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN)
-		if not is_fullscreen:
-			var screen_size: Vector2i = DisplayServer.screen_get_size()
-			DisplayServer.window_set_position((screen_size - res) / 2)
-	_save_settings()
-
-
-## Constrói o ambiente de Floresta estilo PS1 (Crash Bandicoot 1 / CTR)
-func _build_ps1_jungle(parent: Node3D) -> void:
-	# Chão de terra e grama da selva
-	var ground_mesh := PlaneMesh.new()
-	ground_mesh.size = Vector2(20, 20)
-	var ground_mat := StandardMaterial3D.new()
-	ground_mat.albedo_color = Color(0.14, 0.36, 0.16) # Verde musgo PS1
-	ground_mat.roughness = 0.95
-	var ground_inst := MeshInstance3D.new()
-	ground_inst.mesh = ground_mesh
-	ground_inst.position = Vector3(0, 0, 0)
-	parent.add_child(ground_inst)
-
-	# Trilha de terra batida sob o carrinho
-	var path_mesh := PlaneMesh.new()
-	path_mesh.size = Vector2(3.0, 16)
-	var path_mat := StandardMaterial3D.new()
-	path_mat.albedo_color = Color(0.42, 0.25, 0.14) # Terra avermelhada
-	path_mat.roughness = 0.9
-	var path_inst := MeshInstance3D.new()
-	path_inst.mesh = path_mesh
-	path_inst.position = Vector3(0, 0.01, 0)
-	parent.add_child(path_inst)
-
-	# Árvores tropicais low-poly estilo Crash 1 (troncos e copas cônicas poligonais)
-	var trunk_mat := StandardMaterial3D.new()
-	trunk_mat.albedo_color = Color(0.44, 0.26, 0.12)
-	trunk_mat.roughness = 0.85
-
-	var leaf_mat_1 := StandardMaterial3D.new()
-	leaf_mat_1.albedo_color = Color(0.14, 0.56, 0.22) # Verde vibrante de PS1
-	leaf_mat_1.roughness = 0.8
-
-	var leaf_mat_2 := StandardMaterial3D.new()
-	leaf_mat_2.albedo_color = Color(0.24, 0.68, 0.26)
-
-	var tree_positions = [
-		Vector3(-2.8, 0, -2.2), Vector3(3.0, 0, -2.4),
-		Vector3(-3.8, 0, 1.0), Vector3(3.6, 0, 1.2),
-		Vector3(-2.2, 0, -4.8), Vector3(2.4, 0, -4.5),
-		Vector3(-4.6, 0, -3.5), Vector3(4.4, 0, -3.8)
-	]
-
-	for tp in tree_positions:
-		var tree := Node3D.new()
-		tree.position = tp
-
-		var tr_mesh := CylinderMesh.new()
-		tr_mesh.top_radius = 0.18
-		tr_mesh.bottom_radius = 0.40
-		tr_mesh.height = 3.2
-		tr_mesh.radial_segments = 6 # Low-poly característico de PS1!
-		tr_mesh.material = trunk_mat
-		var tr_inst := MeshInstance3D.new()
-		tr_inst.mesh = tr_mesh
-		tr_inst.position = Vector3(0, 1.6, 0)
-		tree.add_child(tr_inst)
-
-		for i in range(3):
-			var leaf_mesh := CylinderMesh.new()
-			leaf_mesh.top_radius = 0.05
-			leaf_mesh.bottom_radius = 1.45 - i * 0.32
-			leaf_mesh.height = 0.85
-			leaf_mesh.radial_segments = 6 # 6 faces poligonais
-			leaf_mesh.material = leaf_mat_1 if i % 2 == 0 else leaf_mat_2
-			var leaf_inst := MeshInstance3D.new()
-			leaf_inst.mesh = leaf_mesh
-			leaf_inst.position = Vector3(0, 2.7 + i * 0.65, 0)
-			tree.add_child(leaf_inst)
-
-		parent.add_child(tree)
-
-	# Samambaias e folhagens tropicais de selva
-	var fern_mat := StandardMaterial3D.new()
-	fern_mat.albedo_color = Color(0.2, 0.75, 0.3)
-	fern_mat.roughness = 0.7
-	for fx in [-1.6, 1.6, -2.2, 2.1]:
-		for fz in [-0.8, 0.7, -1.8]:
-			var fern := MeshInstance3D.new()
-			var fm := BoxMesh.new()
-			fm.size = Vector3(0.5, 0.3, 0.5)
-			fern.mesh = fm
-			fern.material_override = fern_mat
-			fern.position = Vector3(fx + randf_range(-0.2, 0.2), 0.15, fz + randf_range(-0.2, 0.2))
-			fern.rotation = Vector3(0, randf_range(-PI, PI), 0)
-			parent.add_child(fern)
-
-	# Vaga-lumes mágicos flutuantes dourados da floresta
-	var firefly := CPUParticles3D.new()
-	var ff_mat := StandardMaterial3D.new()
-	ff_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	ff_mat.albedo_color = Color(1.0, 0.88, 0.25)
-	var ff_mesh := SphereMesh.new()
-	ff_mesh.radius = 0.035
-	ff_mesh.height = 0.07
-	ff_mesh.material = ff_mat
-	firefly.mesh = ff_mesh
-	firefly.amount = 28
-	firefly.lifetime = 3.2
-	firefly.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
-	firefly.emission_box_extents = Vector3(3.5, 2.2, 3.5)
-	firefly.direction = Vector3(0, 1, 0)
-	firefly.spread = 180.0
-	firefly.initial_velocity_min = 0.1
-	firefly.initial_velocity_max = 0.35
-	firefly.gravity = Vector3(0, 0.04, 0)
-	firefly.position = Vector3(0, 1.1, 0)
-	parent.add_child(firefly)
-
-
-# ================================================================= CAIXA DE TEXTO IDÊNTICA AO PRINT DO AKU AKU
-
-func _build_right_column(parent: Control) -> void:
-	_aku_panel = PanelContainer.new()
-	_aku_panel.custom_minimum_size = Vector2(380, 0)
-	_aku_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
-
-	var root_sb := StyleBoxEmpty.new()
-	_aku_panel.add_theme_stylebox_override("panel", root_sb)
-	parent.add_child(_aku_panel)
-
-	var scroll_root := VBoxContainer.new()
-	scroll_root.add_theme_constant_override("separation", 0)
-	_aku_panel.add_child(scroll_root)
-
-	# 1. TOPO DE MADEIRA DO AKU AKU (com veios, parafusos e penas)
-	var wood_header := PanelContainer.new()
-	wood_header.custom_minimum_size = Vector2(0, 54)
-	var wsb := StyleBoxFlat.new()
-	wsb.bg_color = Color(0.48, 0.28, 0.14)
-	wsb.border_width_top = 3
-	wsb.border_width_bottom = 3
-	wsb.border_width_left = 3
-	wsb.border_width_right = 3
-	wsb.border_color = Color(0.32, 0.18, 0.08)
-	wsb.set_corner_radius_all(6)
-	wsb.set_content_margin_all(8)
-	wood_header.add_theme_stylebox_override("panel", wsb)
-	scroll_root.add_child(wood_header)
-
-	var wood_row := HBoxContainer.new()
-	wood_row.add_theme_constant_override("separation", 8)
-	wood_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	wood_header.add_child(wood_row)
-
-	var left_aku := Label.new()
-	left_aku.text = "🔩 🎭🪶"
-	left_aku.add_theme_font_size_override("font_size", 18)
-	wood_row.add_child(left_aku)
-
-	_wood_title = Label.new()
-	_wood_title.text = "PRIMEIROS PEDIDOS DO AKU"
-	_wood_title.add_theme_font_size_override("font_size", 16)
-	_wood_title.add_theme_color_override("font_color", Color(1.0, 0.88, 0.15))
-	_wood_title.add_theme_constant_override("outline_size", 6)
-	_wood_title.add_theme_color_override("font_outline_color", Color(0.2, 0.08, 0.02))
-	_wood_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_wood_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	wood_row.add_child(_wood_title)
-
-	var right_feathers := Label.new()
-	right_feathers.text = "🪶 🔩"
-	right_feathers.add_theme_font_size_override("font_size", 18)
-	wood_row.add_child(right_feathers)
-
-	# 2. CORPO DO PERGAMINHO DESENROLADO
-	var parchment_body := PanelContainer.new()
-	parchment_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	var psb := StyleBoxFlat.new()
-	psb.bg_color = Color(0.96, 0.91, 0.82)
-	psb.border_width_left = 3
-	psb.border_width_right = 3
-	psb.border_width_bottom = 4
-	psb.border_color = Color(0.78, 0.68, 0.52)
-	psb.set_corner_radius_all(4)
-	psb.set_content_margin_all(14)
-	parchment_body.add_theme_stylebox_override("panel", psb)
-	scroll_root.add_child(parchment_body)
-
-	var p_vbox := VBoxContainer.new()
-	p_vbox.add_theme_constant_override("separation", 8)
-	parchment_body.add_child(p_vbox)
-
-	_scroll_subtitle = Label.new()
-	_scroll_subtitle.text = "Ganhe velocidade enquanto domina os poderes ancestrais"
-	_scroll_subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_scroll_subtitle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_scroll_subtitle.add_theme_font_size_override("font_size", 12)
-	_scroll_subtitle.add_theme_color_override("font_color", Color(0.32, 0.22, 0.14))
-	p_vbox.add_child(_scroll_subtitle)
-
-	# 3. FILEIRA DE BADGES / EMBLEMAS
-	_badges_row = HBoxContainer.new()
-	_badges_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	_badges_row.add_theme_constant_override("separation", 6)
-	p_vbox.add_child(_badges_row)
-
-	_build_badges_row(_badges_row)
-
-	# 4. CARDS DAS HABILIDADES DETALHADAS DENTRO DO PERGAMINHO
-	var scroll_detail := ScrollContainer.new()
-	scroll_detail.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll_detail.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	p_vbox.add_child(scroll_detail)
-
-	var d_vbox := VBoxContainer.new()
-	d_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	d_vbox.add_theme_constant_override("separation", 6)
-	scroll_detail.add_child(d_vbox)
-
-	# Card 1: PASSIVA
-	_passive_card = _create_parchment_card(d_vbox, Color(0.2, 0.55, 0.3))
-	var p_card_vb := _passive_card.get_child(0) as VBoxContainer
-	_passive_name = Label.new()
-	_passive_name.add_theme_font_size_override("font_size", 12)
-	_passive_name.add_theme_color_override("font_color", Color(0.12, 0.42, 0.2))
-	p_card_vb.add_child(_passive_name)
-	_passive_desc = Label.new()
-	_passive_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_passive_desc.add_theme_font_size_override("font_size", 11)
-	_passive_desc.add_theme_color_override("font_color", Color(0.24, 0.18, 0.12))
-	p_card_vb.add_child(_passive_desc)
-
-	# Card 2: HABILIDADE DE DANO [Q]
-	_damage_card = _create_parchment_card(d_vbox, Color(0.72, 0.25, 0.15))
-	var d_card_vb := _damage_card.get_child(0) as VBoxContainer
-	_damage_name = Label.new()
-	_damage_name.add_theme_font_size_override("font_size", 12)
-	_damage_name.add_theme_color_override("font_color", Color(0.68, 0.18, 0.1))
-	d_card_vb.add_child(_damage_name)
-	_damage_meta = Label.new()
-	_damage_meta.add_theme_font_size_override("font_size", 10)
-	_damage_meta.add_theme_color_override("font_color", Color(0.55, 0.35, 0.1))
-	d_card_vb.add_child(_damage_meta)
-	_damage_desc = Label.new()
-	_damage_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_damage_desc.add_theme_font_size_override("font_size", 11)
-	_damage_desc.add_theme_color_override("font_color", Color(0.24, 0.18, 0.12))
-	d_card_vb.add_child(_damage_desc)
-
-	# Card 3: HABILIDADE DE BARREIRA [E]
-	_barrier_card = _create_parchment_card(d_vbox, Color(0.18, 0.45, 0.75))
-	var b_card_vb := _barrier_card.get_child(0) as VBoxContainer
-	_barrier_name = Label.new()
-	_barrier_name.add_theme_font_size_override("font_size", 12)
-	_barrier_name.add_theme_color_override("font_color", Color(0.12, 0.35, 0.65))
-	b_card_vb.add_child(_barrier_name)
-	_barrier_meta = Label.new()
-	_barrier_meta.add_theme_font_size_override("font_size", 10)
-	_barrier_meta.add_theme_color_override("font_color", Color(0.18, 0.45, 0.65))
-	b_card_vb.add_child(_barrier_meta)
-	_barrier_desc = Label.new()
-	_barrier_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_barrier_desc.add_theme_font_size_override("font_size", 11)
-	_barrier_desc.add_theme_color_override("font_color", Color(0.24, 0.18, 0.12))
-	b_card_vb.add_child(_barrier_desc)
-
-	# 5. RODAPÉ DO PERGAMINHO
-	var scroll_footer := HBoxContainer.new()
-	scroll_footer.alignment = BoxContainer.ALIGNMENT_CENTER
-	scroll_footer.add_theme_constant_override("separation", 6)
-	p_vbox.add_child(scroll_footer)
-
-	var r2_badge := Label.new()
-	r2_badge.text = "🎮 R2"
-	r2_badge.add_theme_font_size_override("font_size", 11)
-	r2_badge.add_theme_color_override("font_color", Color(0.42, 0.28, 0.16))
-	scroll_footer.add_child(r2_badge)
-
-	var r2_text := Label.new()
-	r2_text.text = "Detalhes das Habilidades e Passivas"
-	r2_text.add_theme_font_size_override("font_size", 11)
-	r2_text.add_theme_color_override("font_color", Color(0.35, 0.24, 0.15))
-	scroll_footer.add_child(r2_text)
-
-	# Ponta enrolada da base
-	var roll_bottom := PanelContainer.new()
-	roll_bottom.custom_minimum_size = Vector2(0, 10)
-	var rsb := StyleBoxFlat.new()
-	rsb.bg_color = Color(0.82, 0.72, 0.58)
-	rsb.set_corner_radius_all(5)
-	roll_bottom.add_theme_stylebox_override("panel", rsb)
-	scroll_root.add_child(roll_bottom)
-
-	# Botão de confirmação de seleção
-	_confirm_btn = _create_crash_button("✓ CONFIRMAR SELEÇÃO", true, false)
-	_confirm_btn.custom_minimum_size = Vector2(0, 42)
-	_confirm_btn.pressed.connect(func(): _on_confirm_character())
-	scroll_root.add_child(_confirm_btn)
-
-	_update_character_ui()
-
-
-## Constrói a fileira de 8 badges estilizados idêntica à do print
-func _build_badges_row(parent: Control) -> void:
-	var badge_data = [
-		{"icon": "🔥", "bg": Color(0.45, 0.18, 0.65), "border": Color(1.0, 0.82, 0.2)}, # Roxo/Ouro
-		{"icon": "💥", "bg": Color(0.65, 0.18, 0.18), "border": Color(1.0, 0.55, 0.2)}, # Fogo
-		{"icon": "🛡️", "bg": Color(0.18, 0.35, 0.75), "border": Color(0.35, 0.8, 1.0)}, # Barreira
-		{"icon": "⚡", "bg": Color(0.55, 0.15, 0.65), "border": Color(0.9, 0.4, 1.0)},  # Plasma
-		{"icon": "🇧🇷", "bg": Color(0.12, 0.45, 0.22), "border": Color(1.0, 0.82, 0.15)}, # Brasil
-		{"icon": "🛸", "bg": Color(0.15, 0.45, 0.65), "border": Color(0.3, 0.95, 0.8)},  # Alien
-		{"icon": "⭐", "bg": Color(0.75, 0.55, 0.12), "border": Color(1.0, 0.9, 0.3)},   # XP
-		{"icon": "🏁", "bg": Color(0.18, 0.22, 0.35), "border": Color(0.7, 0.8, 0.95)}   # Bandeira
-	]
-
-	for b in badge_data:
-		var b_panel := PanelContainer.new()
-		b_panel.custom_minimum_size = Vector2(34, 34)
-		var b_sb := StyleBoxFlat.new()
-		b_sb.bg_color = b["bg"]
-		b_sb.border_color = b["border"]
-		b_sb.border_width_left = 2
-		b_sb.border_width_right = 2
-		b_sb.border_width_top = 2
-		b_sb.border_width_bottom = 2
-		b_sb.set_corner_radius_all(7)
-		b_sb.set_content_margin_all(2)
-		b_panel.add_theme_stylebox_override("panel", b_sb)
-
-		var l := Label.new()
-		l.text = b["icon"]
-		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		l.add_theme_font_size_override("font_size", 14)
-		b_panel.add_child(l)
-		parent.add_child(b_panel)
-
-
-func _create_parchment_card(parent: Control, border_col: Color) -> PanelContainer:
-	var pc := PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.92, 0.87, 0.76, 0.85) # Pergaminho suave
-	sb.set_corner_radius_all(6)
-	sb.set_content_margin_all(8)
-	sb.border_width_left = 3
-	sb.border_color = border_col
-	pc.add_theme_stylebox_override("panel", sb)
-	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 2)
-	pc.add_child(vb)
-	parent.add_child(pc)
-	return pc
-
-
-## Cria botões no estilo Crash Team Rumble
-func _create_crash_button(btn_text: String, is_gold: bool = false, is_play_btn: bool = false) -> Button:
-	var b := Button.new()
-	b.text = btn_text
-	b.custom_minimum_size = Vector2(230, 48)
-	_apply_crash_button_style(b, is_gold, is_play_btn)
-	return b
-
-
-func _apply_crash_button_style(b: Button, is_gold: bool = false, is_play_btn: bool = false) -> void:
-	var sb_normal := StyleBoxFlat.new()
-	var sb_hover := StyleBoxFlat.new()
-	var sb_pressed := StyleBoxFlat.new()
-
-	sb_normal.set_corner_radius_all(8)
-	sb_hover.set_corner_radius_all(8)
-	sb_pressed.set_corner_radius_all(8)
-	sb_normal.set_content_margin_all(6)
-	sb_hover.set_content_margin_all(6)
-	sb_pressed.set_content_margin_all(6)
-
-	if is_play_btn:
-		sb_normal.bg_color = Color(1.0, 0.78, 0.12)
-		sb_normal.border_width_bottom = 5
-		sb_normal.border_width_left = 3
-		sb_normal.border_width_right = 3
-		sb_normal.border_width_top = 3
-		sb_normal.border_color = Color(0.12, 0.38, 0.85)
-
-		sb_hover.bg_color = Color(1.0, 0.88, 0.25)
-		sb_hover.border_width_bottom = 5
-		sb_hover.border_width_left = 3
-		sb_hover.border_width_right = 3
-		sb_hover.border_width_top = 3
-		sb_hover.border_color = Color(0.2, 0.55, 1.0)
-
-		sb_pressed.bg_color = Color(0.9, 0.68, 0.08)
-		sb_pressed.border_width_bottom = 2
-		sb_pressed.border_color = Color(0.1, 0.3, 0.7)
-
-		b.add_theme_color_override("font_color", Color(0.05, 0.15, 0.35))
-		b.add_theme_color_override("font_hover_color", Color(0.02, 0.08, 0.22))
-		b.add_theme_font_size_override("font_size", 22)
-		b.add_theme_constant_override("outline_size", 4)
-		b.add_theme_color_override("font_outline_color", Color(1.0, 0.92, 0.6))
-	elif is_gold:
-		sb_normal.bg_color = Color(0.16, 0.32, 0.6)
-		sb_normal.border_width_bottom = 4
-		sb_normal.border_width_left = 3
-		sb_normal.border_width_right = 3
-		sb_normal.border_width_top = 3
-		sb_normal.border_color = Color(1.0, 0.82, 0.15)
-
-		sb_hover.bg_color = Color(0.22, 0.42, 0.75)
-		sb_hover.border_width_bottom = 4
-		sb_hover.border_width_left = 3
-		sb_hover.border_width_right = 3
-		sb_hover.border_width_top = 3
-		sb_hover.border_color = Color(1.0, 0.92, 0.35)
-
-		sb_pressed.bg_color = Color(0.12, 0.25, 0.48)
-		sb_pressed.border_width_bottom = 2
-		sb_pressed.border_color = Color(0.8, 0.65, 0.1)
-
-		b.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))
-		b.add_theme_font_size_override("font_size", 15)
-		b.add_theme_constant_override("outline_size", 5)
-		b.add_theme_color_override("font_outline_color", Color(0.04, 0.12, 0.28))
-	else:
-		sb_normal.bg_color = Color(0.1, 0.3, 0.62)
-		sb_normal.border_width_bottom = 4
-		sb_normal.border_width_left = 2
-		sb_normal.border_width_right = 2
-		sb_normal.border_width_top = 2
-		sb_normal.border_color = Color(0.28, 0.6, 0.95)
-
-		sb_hover.bg_color = Color(0.15, 0.4, 0.78)
-		sb_hover.border_width_bottom = 4
-		sb_hover.border_width_left = 2
-		sb_hover.border_width_right = 2
-		sb_hover.border_width_top = 2
-		sb_hover.border_color = Color(0.45, 0.78, 1.0)
-
-		sb_pressed.bg_color = Color(0.08, 0.22, 0.48)
-		sb_pressed.border_width_bottom = 2
-		sb_pressed.border_color = Color(0.2, 0.45, 0.75)
-
-		b.add_theme_color_override("font_color", Color(1, 1, 1))
-		b.add_theme_font_size_override("font_size", 14)
-		b.add_theme_constant_override("outline_size", 5)
-		b.add_theme_color_override("font_outline_color", Color(0.03, 0.1, 0.24))
-
-	b.add_theme_stylebox_override("normal", sb_normal)
-	b.add_theme_stylebox_override("hover", sb_hover)
-	b.add_theme_stylebox_override("pressed", sb_pressed)
-
-
-# ================================================================= MODAL DE MULTIPLAYER
-
-func _build_multiplayer_dialog() -> void:
-	_multiplayer_dialog = PanelContainer.new()
-	_multiplayer_dialog.set_anchors_preset(Control.PRESET_CENTER)
-	_multiplayer_dialog.custom_minimum_size = Vector2(440, 0)
-	_multiplayer_dialog.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	_multiplayer_dialog.grow_vertical = Control.GROW_DIRECTION_BOTH
-	_multiplayer_dialog.visible = false
-
-	var msb := StyleBoxFlat.new()
-	msb.bg_color = Color(0.06, 0.12, 0.24, 0.96)
-	msb.set_corner_radius_all(12)
-	msb.set_content_margin_all(18)
-	msb.border_width_left = 3
-	msb.border_width_right = 3
-	msb.border_width_top = 3
-	msb.border_width_bottom = 3
-	msb.border_color = Color(0.2, 0.85, 0.5)
-	_multiplayer_dialog.add_theme_stylebox_override("panel", msb)
-	add_child(_multiplayer_dialog)
-
-	var mvb := VBoxContainer.new()
-	mvb.add_theme_constant_override("separation", 10)
-	_multiplayer_dialog.add_child(mvb)
-
-	var m_title := Label.new()
-	m_title.text = "SALA MULTIPLAYER ONLINE"
-	m_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	m_title.add_theme_font_size_override("font_size", 18)
-	m_title.add_theme_color_override("font_color", Color(1.0, 0.82, 0.15))
-	mvb.add_child(m_title)
-
-	mvb.add_child(_label("Nome do Piloto"))
-	_name_edit = LineEdit.new()
-	_name_edit.placeholder_text = "Piloto"
-	_name_edit.text = "Piloto"
-	_name_edit.max_length = 16
-	_name_edit.text_changed.connect(func(t: String):
-		if _top_name_edit:
-			_top_name_edit.text = t
-	)
-	mvb.add_child(_name_edit)
-
-	mvb.add_child(_label("Endereço do Servidor (Link Cloudflare ou IP)"))
-	_addr_edit = LineEdit.new()
-	_addr_edit.placeholder_text = "wss://xxxx.trycloudflare.com  ou  localhost"
-	_addr_edit.text = "wss://mix-familiar-hopkins-demographic.trycloudflare.com"
-	mvb.add_child(_addr_edit)
-
-	var btn_row := HBoxContainer.new()
-	btn_row.add_theme_constant_override("separation", 8)
-	mvb.add_child(btn_row)
-
-	var join_btn := _create_crash_button("ENTRAR", false, false)
-	join_btn.custom_minimum_size = Vector2(0, 40)
-	join_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	join_btn.pressed.connect(_on_join)
-	btn_row.add_child(join_btn)
-
-	var host_btn := _create_crash_button("HOSPEDAR", false, false)
-	host_btn.custom_minimum_size = Vector2(0, 40)
-	host_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	host_btn.visible = not Net.is_web()
-	host_btn.pressed.connect(_on_host)
-	btn_row.add_child(host_btn)
-
-	var close_btn := Button.new()
-	close_btn.text = "Fechar"
-	close_btn.custom_minimum_size = Vector2(0, 30)
-	close_btn.pressed.connect(func(): _multiplayer_dialog.visible = false)
-	mvb.add_child(close_btn)
-
-
-# ================================================================= MENU DE PAUSA (IN-GAME)
-
-func _build_pause_menu() -> void:
-	_pause_menu = PanelContainer.new()
-	_pause_menu.set_anchors_preset(Control.PRESET_CENTER)
-	_pause_menu.custom_minimum_size = Vector2(360, 0)
-	_pause_menu.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	_pause_menu.grow_vertical = Control.GROW_DIRECTION_BOTH
-	_pause_menu.visible = false
-
-	var psb := StyleBoxFlat.new()
-	psb.bg_color = Color(0.06, 0.1, 0.2, 0.94)
-	psb.set_corner_radius_all(12)
-	psb.set_content_margin_all(18)
-	psb.border_width_top = 3
-	psb.border_width_bottom = 3
-	psb.border_color = Color(1.0, 0.82, 0.15)
-	_pause_menu.add_theme_stylebox_override("panel", psb)
-	add_child(_pause_menu)
-
-	var pvb := VBoxContainer.new()
-	pvb.add_theme_constant_override("separation", 10)
-	_pause_menu.add_child(pvb)
-
-	var p_title := Label.new()
-	p_title.text = "JOGO PAUSADO"
-	p_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	p_title.add_theme_font_size_override("font_size", 22)
-	p_title.add_theme_color_override("font_color", Color(1.0, 0.82, 0.15))
-	pvb.add_child(p_title)
-
-	_resume_btn = _create_crash_button("CONTINUAR DESCIDA", true, false)
-	_resume_btn.pressed.connect(_hide_pause)
-	pvb.add_child(_resume_btn)
-
-	_restart_btn = _create_crash_button("VOLTAR AO TOPO DA LADEIRA", false, false)
-	_restart_btn.pressed.connect(_on_restart_top)
-	pvb.add_child(_restart_btn)
-
-	_leave_btn = _create_crash_button("VOLTAR AO LOBBY", false, false)
-	_leave_btn.pressed.connect(func():
-		_hide_pause()
-		leave_requested.emit()
-		show_menu("")
-	)
-	pvb.add_child(_leave_btn)
-
-
-# ================================================================= HUD IN-GAME
-
-func _build_hud() -> void:
-	_hud = Control.new()
-	_hud.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_hud.visible = false
-	add_child(_hud)
-
-	_info = Label.new()
-	_info.position = Vector2(16, 12)
-	_info.add_theme_font_size_override("font_size", 14)
-	_info.add_theme_constant_override("outline_size", 4)
-	_info.add_theme_color_override("font_outline_color", Color.BLACK)
-	_hud.add_child(_info)
-
-	_timer_lbl = Label.new()
-	_timer_lbl.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	_timer_lbl.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	_timer_lbl.offset_top = 14
-	_timer_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_timer_lbl.add_theme_font_size_override("font_size", 22)
-	_timer_lbl.add_theme_constant_override("outline_size", 6)
-	_timer_lbl.add_theme_color_override("font_outline_color", Color.BLACK)
-	_hud.add_child(_timer_lbl)
-
-	_speed = Label.new()
-	_speed.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	_speed.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	_speed.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	_speed.offset_right = -24
-	_speed.offset_bottom = -16
-	_speed.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_speed.add_theme_font_size_override("font_size", 40)
-	_speed.add_theme_constant_override("outline_size", 8)
-	_speed.add_theme_color_override("font_outline_color", Color.BLACK)
-	_hud.add_child(_speed)
-
-	_slope_lbl = Label.new()
-	_slope_lbl.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	_slope_lbl.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	_slope_lbl.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	_slope_lbl.offset_bottom = -42
-	_slope_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_slope_lbl.add_theme_font_size_override("font_size", 26)
-	_slope_lbl.add_theme_constant_override("outline_size", 7)
-	_slope_lbl.add_theme_color_override("font_outline_color", Color.BLACK)
-	_hud.add_child(_slope_lbl)
-
-	_hint = Label.new()
-	_hint.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	_hint.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	_hint.offset_left = 16
-	_hint.offset_bottom = -12
-	_hint.text = "Esc: Menu · R: Respawn · [Q] Dano · [E] Barreira"
-	_hint.add_theme_font_size_override("font_size", 12)
-	_hint.modulate = Color(1, 1, 1, 0.7)
-	_hud.add_child(_hint)
-
-	_skill_hud_panel = PanelContainer.new()
-	_skill_hud_panel.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	_skill_hud_panel.offset_left = 16
-	_skill_hud_panel.offset_bottom = -38
-	_skill_hud_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
-
-	var sh_sb := StyleBoxFlat.new()
-	sh_sb.bg_color = Color(0.06, 0.1, 0.2, 0.85)
-	sh_sb.set_corner_radius_all(10)
-	sh_sb.set_content_margin_all(10)
-	sh_sb.border_width_left = 3
-	sh_sb.border_color = Color(1.0, 0.82, 0.15)
-	_skill_hud_panel.add_theme_stylebox_override("panel", sh_sb)
-	_hud.add_child(_skill_hud_panel)
-
-	var sh_vbox := VBoxContainer.new()
-	sh_vbox.add_theme_constant_override("separation", 5)
-	_skill_hud_panel.add_child(sh_vbox)
-
-	_hud_char_banner = Label.new()
-	_hud_char_banner.text = "🔥 Boitatá"
-	_hud_char_banner.add_theme_font_size_override("font_size", 15)
-	sh_vbox.add_child(_hud_char_banner)
-
-	_hud_passive_lbl = Label.new()
-	_hud_passive_lbl.text = "Passiva: Fogo-Fátuo"
-	_hud_passive_lbl.add_theme_font_size_override("font_size", 10)
-	_hud_passive_lbl.modulate = Color(0.3, 0.9, 0.5)
-	sh_vbox.add_child(_hud_passive_lbl)
-
-	var h_skills := HBoxContainer.new()
-	h_skills.add_theme_constant_override("separation", 8)
-	sh_vbox.add_child(h_skills)
-
-	# [Q] Dano
-	_hud_damage_btn = PanelContainer.new()
-	var d_sb := StyleBoxFlat.new()
-	d_sb.bg_color = Color(0.35, 0.1, 0.1, 0.7)
-	d_sb.set_corner_radius_all(6)
-	d_sb.set_content_margin_all(6)
-	_hud_damage_btn.add_theme_stylebox_override("panel", d_sb)
-	var d_vb := VBoxContainer.new()
-	d_vb.add_theme_constant_override("separation", 2)
-	_hud_damage_btn.add_child(d_vb)
-	_hud_damage_lbl = Label.new()
-	_hud_damage_lbl.text = "💥 DANO [Q]"
-	_hud_damage_lbl.add_theme_font_size_override("font_size", 11)
-	_hud_damage_lbl.modulate = Color(1.0, 0.45, 0.3)
-	d_vb.add_child(_hud_damage_lbl)
-	_hud_damage_cd_lbl = Label.new()
-	_hud_damage_cd_lbl.text = "PRONTA [Q]"
-	_hud_damage_cd_lbl.add_theme_font_size_override("font_size", 12)
-	_hud_damage_cd_lbl.modulate = Color(0.3, 1.0, 0.4)
-	d_vb.add_child(_hud_damage_cd_lbl)
-	h_skills.add_child(_hud_damage_btn)
-
-	# [E] Barreira
-	_hud_barrier_btn = PanelContainer.new()
-	var b_sb := StyleBoxFlat.new()
-	b_sb.bg_color = Color(0.1, 0.25, 0.45, 0.7)
-	b_sb.set_corner_radius_all(6)
-	b_sb.set_content_margin_all(6)
-	_hud_barrier_btn.add_theme_stylebox_override("panel", b_sb)
-	var b_vb := VBoxContainer.new()
-	b_vb.add_theme_constant_override("separation", 2)
-	_hud_barrier_btn.add_child(b_vb)
-	_hud_barrier_lbl = Label.new()
-	_hud_barrier_lbl.text = "🛡️ BARREIRA [E]"
-	_hud_barrier_lbl.add_theme_font_size_override("font_size", 11)
-	_hud_barrier_lbl.modulate = Color(0.35, 0.8, 1.0)
-	b_vb.add_child(_hud_barrier_lbl)
-	_hud_barrier_cd_lbl = Label.new()
-	_hud_barrier_cd_lbl.text = "PRONTA [E]"
-	_hud_barrier_cd_lbl.add_theme_font_size_override("font_size", 12)
-	_hud_barrier_cd_lbl.modulate = Color(0.3, 1.0, 0.4)
-	b_vb.add_child(_hud_barrier_cd_lbl)
-	h_skills.add_child(_hud_barrier_btn)
-
-	_build_mobile_controls()
-	_enable_mobile_controls(_is_mobile_touch)
-
-
-# ================================================================= CONTROLES TOUCH MOBILE (MULTI-TOUCH)
-
-func _build_mobile_controls() -> void:
-	_mobile_controls = Control.new()
-	_mobile_controls.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_mobile_controls.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_hud.add_child(_mobile_controls)
-
-	# --- POLEGAR ESQUERDO: DIREÇÃO (◀ ESQ / DIR ▶) ---
-	var btn_left := _create_touch_button("steer_left", "◀\nESQ", Vector2(118, 104), Color(0.1, 0.28, 0.58, 0.78), Color(0.35, 0.78, 1.0), 22)
-	btn_left.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	btn_left.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	btn_left.offset_left = 20
-	btn_left.offset_right = 138
-	btn_left.offset_bottom = -22
-	btn_left.offset_top = -126
-	_mobile_controls.add_child(btn_left)
-
-	var btn_right := _create_touch_button("steer_right", "▶\nDIR", Vector2(118, 104), Color(0.1, 0.28, 0.58, 0.78), Color(0.35, 0.78, 1.0), 22)
-	btn_right.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	btn_right.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	btn_right.offset_left = 152
-	btn_right.offset_right = 270
-	btn_right.offset_bottom = -22
-	btn_right.offset_top = -126
-	_mobile_controls.add_child(btn_right)
-
-	# --- POLEGAR DIREITO: ACELERAR, FREAR, PULO E HABILIDADES ---
-	var btn_accel := _create_touch_button("accelerate", "▲\nACELERAR", Vector2(134, 108), Color(0.12, 0.48, 0.24, 0.84), Color(1.0, 0.86, 0.2), 18)
-	btn_accel.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	btn_accel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	btn_accel.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	btn_accel.offset_right = -20
-	btn_accel.offset_left = -154
-	btn_accel.offset_bottom = -22
-	btn_accel.offset_top = -130
-	_mobile_controls.add_child(btn_accel)
-
-	var btn_brake := _create_touch_button("brake", "▼\nFREAR", Vector2(104, 88), Color(0.48, 0.14, 0.14, 0.8), Color(1.0, 0.52, 0.35), 16)
-	btn_brake.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	btn_brake.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	btn_brake.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	btn_brake.offset_right = -166
-	btn_brake.offset_left = -270
-	btn_brake.offset_bottom = -22
-	btn_brake.offset_top = -110
-	_mobile_controls.add_child(btn_brake)
-
-	var btn_hop := _create_touch_button("drift", "⏫\nPULO", Vector2(98, 66), Color(0.14, 0.36, 0.62, 0.8), Color(0.4, 0.9, 1.0), 14)
-	btn_hop.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	btn_hop.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	btn_hop.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	btn_hop.offset_right = -20
-	btn_hop.offset_left = -118
-	btn_hop.offset_bottom = -142
-	btn_hop.offset_top = -208
-	_mobile_controls.add_child(btn_hop)
-
-	var btn_dmg := _create_touch_button("ability_damage", "💥 DANO\nPRONTA", Vector2(102, 66), Color(0.45, 0.12, 0.08, 0.82), Color(1.0, 0.55, 0.25), 13)
-	btn_dmg.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	btn_dmg.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	btn_dmg.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	btn_dmg.offset_right = -128
-	btn_dmg.offset_left = -230
-	btn_dmg.offset_bottom = -142
-	btn_dmg.offset_top = -208
-	_mobile_dmg_lbl = btn_dmg.get_meta("label") as Label
-	_mobile_controls.add_child(btn_dmg)
-
-	var btn_bar := _create_touch_button("ability_barrier", "🛡️ ESCUDO\nPRONTO", Vector2(102, 66), Color(0.08, 0.28, 0.52, 0.82), Color(0.3, 0.88, 1.0), 13)
-	btn_bar.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	btn_bar.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	btn_bar.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	btn_bar.offset_right = -240
-	btn_bar.offset_left = -342
-	btn_bar.offset_bottom = -142
-	btn_bar.offset_top = -208
-	_mobile_bar_lbl = btn_bar.get_meta("label") as Label
-	_mobile_controls.add_child(btn_bar)
-
-	# --- TOPO DIREITO: RESPAWN E PAUSA ---
-	var btn_respawn := _create_touch_button("respawn", "↺ RESPAWN", Vector2(114, 42), Color(0.28, 0.22, 0.1, 0.82), Color(1.0, 0.82, 0.25), 13)
-	btn_respawn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	btn_respawn.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	btn_respawn.offset_right = -128
-	btn_respawn.offset_left = -242
-	btn_respawn.offset_top = 12
-	btn_respawn.offset_bottom = 54
-	_mobile_controls.add_child(btn_respawn)
-
-	var btn_menu := _create_touch_button("toggle_menu", "⏸ MENU", Vector2(100, 42), Color(0.12, 0.22, 0.42, 0.85), Color(0.6, 0.85, 1.0), 13)
-	btn_menu.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	btn_menu.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	btn_menu.offset_right = -18
-	btn_menu.offset_left = -118
-	btn_menu.offset_top = 12
-	btn_menu.offset_bottom = 54
-	_mobile_controls.add_child(btn_menu)
-
-
-func _create_touch_button(action_name: String, text_str: String, min_sz: Vector2, bg_col: Color, border_col: Color, fsize: int) -> PanelContainer:
-	var pc := PanelContainer.new()
-	pc.custom_minimum_size = min_sz
-	pc.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	pc.pivot_offset = min_sz * 0.5
-
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = bg_col
-	sb.set_corner_radius_all(14)
-	sb.border_width_left = 3
-	sb.border_width_right = 3
-	sb.border_width_top = 3
-	sb.border_width_bottom = 5
-	sb.border_color = border_col
-	sb.set_content_margin_all(6)
-	pc.add_theme_stylebox_override("panel", sb)
-
-	var lbl := Label.new()
-	lbl.text = text_str
-	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	lbl.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	lbl.add_theme_font_size_override("font_size", fsize)
-	lbl.add_theme_constant_override("outline_size", 5)
-	lbl.add_theme_color_override("font_outline_color", Color(0.02, 0.06, 0.14))
-	pc.add_child(lbl)
-
-	pc.set_meta("label", lbl)
-	pc.set_meta("base_color", bg_col)
-	pc.set_meta("stylebox", sb)
-	_touch_buttons[action_name] = pc
-	_touch_action_state[action_name] = false
-	return pc
-
-
-func _enable_mobile_controls(enable: bool) -> void:
-	_is_mobile_touch = enable
-	if _mobile_controls:
-		_mobile_controls.visible = enable
-	if _hint:
-		_hint.visible = not enable
-	if _hud_damage_lbl:
-		_hud_damage_lbl.text = "💥 DANO" if enable else "💥 DANO [Q]"
-	if _hud_barrier_lbl:
-		_hud_barrier_lbl.text = "🛡️ BARREIRA" if enable else "🛡️ BARREIRA [E]"
-
-	# Reposiciona o painel de informações de herói e o velocímetro para não ficarem embaixo dos polegares no celular
-	if _skill_hud_panel:
-		if enable:
-			_skill_hud_panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
-			_skill_hud_panel.grow_vertical = Control.GROW_DIRECTION_END
-			_skill_hud_panel.offset_left = 16
-			_skill_hud_panel.offset_top = 38
-			_skill_hud_panel.offset_bottom = 148
-		else:
-			_skill_hud_panel.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-			_skill_hud_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
-			_skill_hud_panel.offset_left = 16
-			_skill_hud_panel.offset_bottom = -38
-			_skill_hud_panel.offset_top = -150
-
-	if _speed:
-		if enable:
-			_speed.offset_right = -24
-			_speed.offset_bottom = -218
-		else:
-			_speed.offset_right = -24
-			_speed.offset_bottom = -16
-
-
-func _is_point_on_any_touch_btn(pt: Vector2) -> bool:
-	for action_name in _touch_buttons:
-		var ctrl := _touch_buttons[action_name] as Control
-		if ctrl and ctrl.visible and ctrl.get_global_rect().grow(10.0).has_point(pt):
-			return true
-	return false
-
-
-func _sync_touch_controls() -> void:
-	for action_name in _touch_buttons:
-		var ctrl := _touch_buttons[action_name] as PanelContainer
-		if ctrl == null or not ctrl.visible:
-			continue
-		var rect := ctrl.get_global_rect().grow(12.0)
-		var pressed_now := false
-		for f_idx in _touch_points:
-			var pt: Vector2 = _touch_points[f_idx]
-			if rect.has_point(pt):
-				pressed_now = true
-				break
-
-		# Permite também tocar nos cards de habilidade no canto superior esquerdo
-		if not pressed_now and action_name == "ability_damage" and _hud_damage_btn and _hud_damage_btn.is_visible_in_tree():
-			var d_rect := _hud_damage_btn.get_global_rect().grow(8.0)
-			for f_idx in _touch_points:
-				if d_rect.has_point(_touch_points[f_idx]):
-					pressed_now = true
-					break
-		elif not pressed_now and action_name == "ability_barrier" and _hud_barrier_btn and _hud_barrier_btn.is_visible_in_tree():
-			var b_rect := _hud_barrier_btn.get_global_rect().grow(8.0)
-			for f_idx in _touch_points:
-				if b_rect.has_point(_touch_points[f_idx]):
-					pressed_now = true
-					break
-
-		var was_pressed: bool = _touch_action_state.get(action_name, false)
-		var sb := ctrl.get_meta("stylebox") as StyleBoxFlat
-		var base_col: Color = ctrl.get_meta("base_color")
-		if pressed_now != was_pressed:
-			_touch_action_state[action_name] = pressed_now
-			if sb:
-				sb.bg_color = base_col.lightened(0.32) if pressed_now else base_col
-			ctrl.scale = Vector2(0.93, 0.93) if pressed_now else Vector2.ONE
-
-			if action_name == "toggle_menu":
-				if pressed_now and Net.in_session:
-					_show_pause()
-					return
-			else:
-				if pressed_now:
-					Input.action_press(action_name, 1.0)
-				else:
-					Input.action_release(action_name)
-
-
-func _release_all_touch_actions() -> void:
-	_touch_points.clear()
-	for action_name in _touch_action_state.keys():
-		if _touch_action_state[action_name]:
-			_touch_action_state[action_name] = false
-			if action_name != "toggle_menu" and InputMap.has_action(action_name):
-				Input.action_release(action_name)
-		var ctrl := _touch_buttons.get(action_name) as PanelContainer
-		if ctrl:
-			ctrl.scale = Vector2.ONE
-			var sb := ctrl.get_meta("stylebox") as StyleBoxFlat
-			var base_col: Color = ctrl.get_meta("base_color")
-			if sb:
-				sb.bg_color = base_col
-
-
-# ================================================================= AÇÕES E SELEÇÃO DE HERÓIS
-
-func _select_character(char_id: String) -> void:
-	_selected_character_id = char_id
-	Net.player_character = char_id
-	_save_settings()
-	_reload_preview_kart()
-	_update_character_ui()
-
-
-func _on_confirm_character() -> void:
-	Net.player_character = _selected_character_id
-	_save_settings()
-	_update_character_ui()
-	set_status("Herói %s pronto para rasgar as descidas!" % CharacterDataScript.get_character(_selected_character_id).name)
-
-
-func _reload_preview_kart() -> void:
-	if not _preview_pivot:
-		return
-	if is_instance_valid(_preview_kart):
-		_preview_kart.queue_free()
-		_preview_kart = null
-
-	_preview_kart = KART_SCENE.instantiate()
-	_preview_kart.is_preview = true
-	_preview_kart.character_id = _selected_character_id
-	_preview_kart.position = Vector3(0, 0, 0)
-	_preview_pivot.add_child(_preview_kart)
-
-
-func _update_character_ui() -> void:
-	var cdata: Dictionary = CharacterDataScript.get_character(_selected_character_id)
-	var is_boitata := (_selected_character_id == CharacterDataScript.BOITATA)
-
-	if _char_btn_boitata and _char_btn_et:
-		_char_btn_boitata.modulate = Color(1.2, 1.2, 1.2) if is_boitata else Color(0.75, 0.75, 0.75)
-		_char_btn_et.modulate = Color(1.2, 1.2, 1.2) if not is_boitata else Color(0.75, 0.75, 0.75)
-
-	# Atualiza o título na madeira do Aku Aku
-	if _wood_title:
-		_wood_title.text = "LENDAS & PODERES: %s" % cdata.name.to_upper()
-
-	# Subtítulo no pergaminho
-	if _scroll_subtitle:
-		_scroll_subtitle.text = "%s — %s" % [cdata.title, cdata.lore_category]
-
-	# Passiva no pergaminho
-	if _passive_name:
-		_passive_name.text = "%s %s: %s" % [cdata.passive.icon, cdata.passive.tag, cdata.passive.name]
-		_passive_desc.text = "%s\n%s" % [cdata.passive.summary, cdata.passive.description]
-
-	# Habilidade 1 (Dano) no pergaminho
-	if _damage_name:
-		var dam: Dictionary = cdata.ability_damage
-		_damage_name.text = "%s %s" % [dam.icon, dam.name]
-		_damage_meta.text = "%s  |  Tecla: [%s]  |  Recarga: %.0fs" % [dam.tag, dam.key_pc, dam.cooldown]
-		_damage_desc.text = "%s\n%s" % [dam.summary, dam.description]
-
-	# Habilidade 2 (Barreira) no pergaminho
-	if _barrier_name:
-		var bar: Dictionary = cdata.ability_barrier
-		_barrier_name.text = "%s %s" % [bar.icon, bar.name]
-		_barrier_meta.text = "%s  |  Tecla: [%s]  |  Recarga: %.0fs  |  Duração: %.0fs" % [bar.tag, bar.key_pc, bar.cooldown, bar.duration]
-		_barrier_desc.text = "%s\n%s" % [bar.summary, bar.description]
-
-	if _confirm_btn:
-		_confirm_btn.text = "✓ %s CONFIRMADO!" % cdata.name.to_upper()
-
-
-func _show_powers_focus() -> void:
-	_show_heroes_tab()
-	set_status("Confira as habilidades de Dano [Q] e Barreira [E] detalhadas no pergaminho à direita!")
-
-
-func _label(t: String) -> Label:
-	var l := Label.new()
-	l.text = t
-	l.add_theme_font_size_override("font_size", 12)
-	l.modulate = Color(1, 1, 1, 0.75)
-	return l
-
-
-func _current_name() -> String:
-	var n := ""
-	if _top_name_edit and _top_name_edit.text.strip_edges() != "":
-		n = _top_name_edit.text.strip_edges()
-	elif _name_edit and _name_edit.text.strip_edges() != "":
-		n = _name_edit.text.strip_edges()
+	if event.is_action_pressed("ui_cancel") or (_current == Screen.PAUSE and event.is_action_pressed("toggle_menu")):
+		_back()
+		get_viewport().set_input_as_handled()
+
+
+func _update_prompts() -> void:
+	match _current:
+		Screen.TITLE, Screen.HUD:
+			_prompts.set_prompts([])
+		Screen.MAIN:
+			_prompts.set_prompts([[&"ui_accept", "SELECIONAR"]])
+		Screen.PAUSE:
+			_prompts.set_prompts([[&"ui_accept", "SELECIONAR"], [&"ui_cancel", "CONTINUAR"]])
+		Screen.RESULTS:
+			_prompts.set_prompts([[&"ui_accept", "SELECIONAR"], [&"ui_cancel", "VER A PISTA"]])
+		_:
+			_prompts.set_prompts([[&"ui_accept", "SELECIONAR"], [&"ui_cancel", "VOLTAR"]])
+	_prompts.visible = _current != Screen.HUD and _current != Screen.TITLE
+
+
+func _on_prompt(action: StringName) -> void:
+	if action == &"ui_cancel":
+		_back()
+	elif action == &"ui_accept":
+		var fo := get_viewport().gui_get_focus_owner()
+		if fo is BaseButton:
+			(fo as BaseButton).pressed.emit()
+
+
+# =========================================================== ações
+
+func _player_name() -> String:
+	var n := _name_edit.text.strip_edges()
 	return n if n != "" else "Piloto"
 
 
-func _on_join() -> void:
-	_save_settings()
-	_multiplayer_dialog.visible = false
-	join_requested.emit(_addr_edit.text, _current_name())
-
-
-func _on_host() -> void:
-	_save_settings()
-	_multiplayer_dialog.visible = false
-	host_requested.emit(_current_name())
+func _save_lobby() -> void:
+	Settings.player_name = _name_edit.text.strip_edges()
+	Settings.last_address = _addr_edit.text.strip_edges()
+	Settings.save_settings()
 
 
 func _on_practice() -> void:
-	_save_settings()
-	practice_requested.emit(_current_name())
+	_save_lobby()
+	practice_requested.emit(_player_name())
+
+
+func _on_join() -> void:
+	_save_lobby()
+	_online_status.text = "Conectando..."
+	join_requested.emit(_addr_edit.text, _player_name())
+
+
+func _on_host() -> void:
+	_save_lobby()
+	host_requested.emit(_player_name())
 
 
 func _on_restart_top() -> void:
 	for k in get_tree().get_nodes_in_group("local_kart"):
 		k.restart_at_top()
-	_hide_pause()
+	_results_shown = false
+	_stack.clear()
+	_go(Screen.HUD, false)
 
 
-func _load_settings() -> void:
-	var cfg := ConfigFile.new()
-	var master_vol := 0.8
-	var is_fullscreen := false
-	var res_idx := 2 # 1280x720 padrão
-	if cfg.load(SETTINGS_PATH) == OK:
-		var pname: String = cfg.get_value("player", "name", "Piloto")
-		if _name_edit:
-			_name_edit.text = pname
-		if _top_name_edit:
-			_top_name_edit.text = pname
-		if _addr_edit:
-			var saved_addr: String = cfg.get_value("net", "address", "")
-			if saved_addr != "" and not saved_addr.contains("trycloudflare.com"):
-				_addr_edit.text = saved_addr
-		_selected_character_id = cfg.get_value("player", "character", CharacterDataScript.BOITATA)
-		master_vol = cfg.get_value("audio", "master_volume", 0.8)
-		is_fullscreen = cfg.get_value("video", "fullscreen", false)
-		res_idx = cfg.get_value("video", "resolution_index", 2)
+func _on_leave_confirmed() -> void:
+	leave_requested.emit()
 
-	if _vol_slider:
-		_vol_slider.value = master_vol
-	_on_volume_changed(master_vol)
 
-	if _window_mode_option:
-		_window_mode_option.selected = 1 if is_fullscreen else 0
-	if _res_option:
-		_res_option.selected = clampi(res_idx, 0, RESOLUTIONS.size() - 1)
+func _on_net_status(text: String) -> void:
+	if _online_status:
+		_online_status.text = text
+	# Avisos de rede só viram "toast" fora da corrida (no HUD eles só atrapalhariam a leitura).
+	if not _in_session and _current != Screen.ONLINE and _current != Screen.TITLE:
+		_toast_msg(text)
 
-	if DisplayServer.get_name() != "headless":
-		if is_fullscreen:
-			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
-		else:
-			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
-			if res_idx >= 0 and res_idx < RESOLUTIONS.size():
-				var res: Vector2i = RESOLUTIONS[res_idx]
-				DisplayServer.window_set_size(res)
 
-	Net.player_character = _selected_character_id
-	_update_character_ui()
-	_reload_preview_kart()
+# =========================================================== construção: base
+
+func _full_rect_control() -> Control:
+	var c := Control.new()
+	c.set_anchors_preset(Control.PRESET_FULL_RECT)
+	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return c
+
+
+func _new_screen(id: int) -> Control:
+	var c := _full_rect_control()
+	c.visible = false
+	_screen_root.add_child(c)
+	_screens[id] = c
+	return c
+
+
+func _build_shade() -> void:
+	# Escurece só o lado esquerdo (onde ficam os menus) e mantém o mundo 3D visível à direita.
+	_shade = SideShade.new()
+	_shade.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(_shade)
+
+
+## Placa de madeira com plaquinha de título pregada em cima (inclinada, estilo cartoon).
+func _make_board(screen: Control, title: String, width: float) -> VBoxContainer:
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", -24)
+	col.anchor_left = 0.0
+	col.anchor_right = 0.0
+	col.anchor_top = 0.5
+	col.anchor_bottom = 0.5
+	col.offset_left = MENU_LEFT
+	col.offset_right = MENU_LEFT
+	col.grow_vertical = Control.GROW_DIRECTION_BOTH
+	screen.add_child(col)
+
+	var sign := PanelContainer.new()
+	var sb := UIStyle.wood_box(1, true)
+	sb.fill = UIStyle.WOOD_LIGHT
+	sb.fill_alt = UIStyle.WOOD_LIGHT
+	sb.corner_radius = 14.0
+	sb.content_margin_left = 40
+	sb.content_margin_right = 40
+	sb.content_margin_top = 10
+	sb.content_margin_bottom = 8
+	sign.add_theme_stylebox_override("panel", sb)
+	sign.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	sign.z_index = 1
+	sign.add_child(UIStyle.label(title, 46, UIStyle.CREAM))
+	sign.resized.connect(func() -> void: sign.pivot_offset = sign.size * 0.5)
+	sign.rotation = deg_to_rad(-2.5)
+	col.add_child(sign)
+
+	var board := PanelContainer.new()
+	var bb := UIStyle.wood_box(5, true)
+	bb.content_margin_top = 46
+	bb.content_margin_left = 34
+	bb.content_margin_right = 34
+	bb.content_margin_bottom = 24
+	board.add_theme_stylebox_override("panel", bb)
+	board.custom_minimum_size.x = width
+	col.add_child(board)
+
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 2)
+	board.add_child(body)
+	screen.set_meta("sign", sign)
+	screen.set_meta("board", col)
+	return body
+
+
+## Liga o foco em anel (do último volta ao primeiro) e define o item inicial.
+func _link_focus(screen_id: int, items: Array[Control], first: Control = null) -> void:
+	var n := items.size()
+	for i in n:
+		var c := items[i]
+		var prev := items[(i - 1 + n) % n]
+		var next := items[(i + 1) % n]
+		c.focus_neighbor_top = c.get_path_to(prev)
+		c.focus_neighbor_bottom = c.get_path_to(next)
+		c.focus_previous = c.get_path_to(prev)
+		c.focus_next = c.get_path_to(next)
+		c.focus_neighbor_left = c.get_path_to(c)
+		c.focus_neighbor_right = c.get_path_to(c)
+	_first_focus[screen_id] = first if first else items[0]
+
+
+func _item(parent: Control, text: String, cb: Callable, size_px := 44) -> MenuItem:
+	var m := MenuItem.new(text, size_px)
+	m.pressed.connect(cb)
+	parent.add_child(m)
+	return m
+
+
+func _gap(parent: Control, h: float) -> void:
+	var g := Control.new()
+	g.custom_minimum_size.y = h
+	g.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(g)
+
+
+func _make_logo(big: bool) -> VBoxContainer:
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", -20 if big else -14)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var px := 150 if big else 92
+	var title := UIStyle.label("ROLIMÃ", px, UIStyle.SUN)
+	title.add_theme_constant_override("outline_size", int(px * 0.27))
+	title.add_theme_constant_override("shadow_outline_size", int(px * 0.27))
+	title.add_theme_constant_override("shadow_offset_y", int(px * 0.08))
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.rotation = deg_to_rad(-4.0)
+	title.resized.connect(func() -> void: title.pivot_offset = title.size * 0.5)
+	box.add_child(title)
+
+	var plank := PanelContainer.new()
+	var pb := UIStyle.wood_box(1, true)
+	pb.corner_radius = 12.0
+	pb.content_margin_left = 30
+	pb.content_margin_right = 30
+	pb.content_margin_top = 8
+	pb.content_margin_bottom = 4
+	plank.add_theme_stylebox_override("panel", pb)
+	plank.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	plank.add_child(UIStyle.label("PUMPTRACK", 50 if big else 32, UIStyle.CREAM))
+	plank.rotation = deg_to_rad(2.0)
+	plank.resized.connect(func() -> void: plank.pivot_offset = plank.size * 0.5)
+	box.add_child(plank)
+	return box
+
+
+func _center(c: Control, y_offset := 0.0) -> void:
+	c.set_anchors_preset(Control.PRESET_CENTER)
+	c.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	c.grow_vertical = Control.GROW_DIRECTION_BOTH
+	c.offset_top = y_offset
+	c.offset_bottom = y_offset
+
+
+## "Chip" de papel com a tecla/ícone (usado em COMO JOGAR e PILOTOS).
+func _chip(text: String, min_w := 150.0, fill := UIStyle.PAPER) -> PanelContainer:
+	var chip := PanelContainer.new()
+	var cb := UIStyle.paper_box(10.0)
+	cb.fill = fill
+	cb.fill_alt = fill
+	cb.content_margin_top = 4
+	cb.content_margin_bottom = 2
+	chip.add_theme_stylebox_override("panel", cb)
+	chip.custom_minimum_size = Vector2(min_w, 0)
+	chip.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	var kl := Label.new()
+	kl.text = text
+	kl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	kl.add_theme_font_override("font", UIStyle.display_font())
+	kl.add_theme_font_size_override("font_size", 22)
+	kl.add_theme_color_override("font_color", UIStyle.INK)
+	chip.add_child(kl)
+	return chip
+
+
+# =========================================================== construção: telas
+
+func _build_title() -> void:
+	var s := _new_screen(Screen.TITLE)
+	_title_logo = _make_logo(true)
+	_center(_title_logo, -60.0)
+	s.add_child(_title_logo)
+	_title_logo.resized.connect(func() -> void: _title_logo.pivot_offset = _title_logo.size * 0.5)
+
+	_title_hint = UIStyle.label("APERTE QUALQUER BOTÃO", 40, UIStyle.CREAM)
+	_title_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_center(_title_hint, 190.0)
+	_title_hint.resized.connect(func() -> void: _title_hint.pivot_offset = _title_hint.size * 0.5)
+	s.add_child(_title_hint)
+
+	var foot := UIStyle.label("DESCIDA DE MORRO MULTIPLAYER  ·  %s" % VERSION, 20, Color(UIStyle.CREAM, 0.8))
+	foot.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	foot.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	foot.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	foot.offset_bottom = -26
+	s.add_child(foot)
+
+
+func _build_main() -> void:
+	var s := _new_screen(Screen.MAIN)
+	var logo := _make_logo(false)
+	logo.position = Vector2(MENU_LEFT - 18.0, 30.0)
+	s.add_child(logo)
+
+	var list := VBoxContainer.new()
+	list.add_theme_constant_override("separation", 0)
+	list.position = Vector2(MENU_LEFT - 20.0, 262.0)
+	s.add_child(list)
+	var items: Array[Control] = []
+	items.append(_item(list, "JOGAR SOZINHO", _on_practice, 42))
+	items.append(_item(list, "JOGAR ONLINE", func() -> void: _go(Screen.ONLINE), 42))
+	items.append(_item(list, "PILOTOS", func() -> void: _go(Screen.PILOTS), 42))
+	items.append(_item(list, "COMO JOGAR", func() -> void: _go(Screen.HOWTO), 42))
+	items.append(_item(list, "OPÇÕES", func() -> void: _go(Screen.OPTIONS), 42))
+	if not Net.is_web() and not OS.has_feature("mobile"):
+		items.append(_item(list, "SAIR DO JOGO", func() -> void: get_tree().quit(), 42))
+	_link_focus(Screen.MAIN, items)
+
+	_main_info = UIStyle.label("", 22, UIStyle.SUN)
+	_main_info.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_main_info.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_main_info.offset_left = MENU_LEFT
+	_main_info.offset_bottom = -28
+	s.add_child(_main_info)
+
+
+func _refresh_main_info() -> void:
+	var cdata: Dictionary = CharacterData.get_character(Settings.character)
+	var txt := "PILOTO: %s" % String(cdata["name"]).to_upper()
+	if Settings.best_time > 0.0:
+		txt += "   ·   RECORDE: %s" % _fmt_time(Settings.best_time)
+	_main_info.text = txt
+
+
+func _build_online() -> void:
+	var s := _new_screen(Screen.ONLINE)
+	var body := _make_board(s, "JOGAR ONLINE", 640.0)
+	body.add_child(UIStyle.label("SEU NOME", 24, UIStyle.SUN))
+	_name_edit = LineEdit.new()
+	_name_edit.placeholder_text = "Piloto"
+	_name_edit.max_length = 16
+	_name_edit.custom_minimum_size = Vector2(0, 54)
+	_name_edit.text = Settings.player_name
+	body.add_child(_name_edit)
+	_gap(body, 8)
+	body.add_child(UIStyle.label("ENDEREÇO DO HOST", 24, UIStyle.SUN))
+	_addr_edit = LineEdit.new()
+	_addr_edit.placeholder_text = "link do túnel  ou  localhost"
+	_addr_edit.custom_minimum_size = Vector2(0, 54)
+	_addr_edit.text = Settings.last_address
 	var from_url := Net.server_from_page_url()
-	if from_url != "" and _addr_edit:
+	if from_url != "":
 		_addr_edit.text = from_url
+	body.add_child(_addr_edit)
+	_gap(body, 10)
+
+	var items: Array[Control] = [_name_edit, _addr_edit]
+	var join := _item(body, "ENTRAR NA PARTIDA", _on_join, 38)
+	items.append(join)
+	if not Net.is_web():
+		items.append(_item(body, "CRIAR PARTIDA (HOST)", _on_host, 38))
+	items.append(_item(body, "VOLTAR", _back, 38))
+	_name_edit.text_submitted.connect(func(_t: String) -> void: _addr_edit.grab_focus())
+	_addr_edit.text_submitted.connect(func(_t: String) -> void: join.grab_focus())
+
+	_online_status = UIStyle.label("", 20, UIStyle.CREAM, false)
+	_online_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_online_status.custom_minimum_size = Vector2(560, 0)
+	body.add_child(_online_status)
+	_link_focus(Screen.ONLINE, items, join)
 
 
-func _save_settings() -> void:
-	var cfg := ConfigFile.new()
-	var pname := _current_name()
-	cfg.set_value("player", "name", pname)
-	if _addr_edit:
-		cfg.set_value("net", "address", _addr_edit.text)
-	cfg.set_value("player", "character", _selected_character_id)
-	if _vol_slider:
-		cfg.set_value("audio", "master_volume", _vol_slider.value)
-	if _window_mode_option:
-		cfg.set_value("video", "fullscreen", _window_mode_option.selected == 1)
-	if _res_option:
-		cfg.set_value("video", "resolution_index", _res_option.selected)
-	cfg.save(SETTINGS_PATH)
-	Net.player_name = pname
-	Net.player_character = _selected_character_id
+# ----------------------------------------------------------------- PILOTOS (seleção + preview 3D)
+
+func _build_pilots() -> void:
+	var s := _new_screen(Screen.PILOTS)
+	var body := _make_board(s, "PILOTOS", 620.0)
+
+	var all := CharacterData.get_all_characters()
+	var names := PackedStringArray()
+	var current := 0
+	for i in all.size():
+		names.append(String(all[i]["name"]).to_upper())
+		if all[i]["id"] == Settings.character:
+			current = i
+	_pilot_selector = MenuItem.new("", 40)
+	_pilot_selector.set_values(names, current)
+	_pilot_selector.value_changed.connect(func(i: int) -> void:
+		Settings.character = all[i]["id"]
+		Settings.save_settings()
+		_refresh_pilot())
+	body.add_child(_pilot_selector)
+
+	_pilot_title = UIStyle.label("", 22, UIStyle.SUN, false)
+	_pilot_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_pilot_title.custom_minimum_size = Vector2(540, 0)
+	body.add_child(_pilot_title)
+	_gap(body, 8)
+	_pilot_rows = VBoxContainer.new()
+	_pilot_rows.add_theme_constant_override("separation", 10)
+	body.add_child(_pilot_rows)
+	_gap(body, 8)
+	var play := _item(body, "JOGAR COM ESTE PILOTO", _on_practice, 36)
+	var back := _item(body, "VOLTAR", _back, 36)
+	_link_focus(Screen.PILOTS, [_pilot_selector, play, back] as Array[Control], _pilot_selector)
+
+	# Preview 3D do carrinho + piloto, com fundo transparente por cima do mundo vivo.
+	_preview_box = SubViewportContainer.new()
+	_preview_box.stretch = true
+	_preview_box.anchor_left = 0.58
+	_preview_box.anchor_right = 0.98
+	_preview_box.anchor_top = 0.1
+	_preview_box.anchor_bottom = 0.86
+	_preview_box.mouse_filter = Control.MOUSE_FILTER_STOP
+	_preview_box.gui_input.connect(_on_preview_input)
+	s.add_child(_preview_box)
+	_preview_vp = SubViewport.new()
+	_preview_vp.own_world_3d = true
+	_preview_vp.transparent_bg = true
+	_preview_vp.msaa_3d = Viewport.MSAA_2X
+	_preview_box.add_child(_preview_vp)
+	var env := Environment.new()
+	env.background_mode = Environment.BG_CLEAR_COLOR
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(1.0, 0.93, 0.8)
+	env.ambient_light_energy = 0.55
+	var we := WorldEnvironment.new()
+	we.environment = env
+	_preview_vp.add_child(we)
+	var sun := DirectionalLight3D.new()
+	_preview_vp.add_child(sun)
+	sun.look_at_from_position(Vector3(2.5, 4.5, 2.8), Vector3.ZERO, Vector3.UP)
+	sun.light_energy = 1.3
+	var rim := OmniLight3D.new()
+	rim.position = Vector3(-2.2, 1.6, -1.5)
+	rim.light_color = Color(1.0, 0.75, 0.4)
+	rim.light_energy = 1.2
+	rim.omni_range = 6.0
+	_preview_vp.add_child(rim)
+	var cam := Camera3D.new()
+	cam.fov = 40.0
+	_preview_vp.add_child(cam)
+	cam.look_at_from_position(Vector3(0.0, 1.35, 3.6), Vector3(0.0, 0.42, 0.0), Vector3.UP)
+	cam.current = true
+	# Sombra "carimbo" redonda embaixo do carrinho (cartoon)
+	var blob := MeshInstance3D.new()
+	var disc := CylinderMesh.new()
+	disc.top_radius = 1.05
+	disc.bottom_radius = 1.05
+	disc.height = 0.01
+	var bm := StandardMaterial3D.new()
+	bm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	bm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	bm.albedo_color = Color(0, 0, 0, 0.35)
+	disc.material = bm
+	blob.mesh = disc
+	blob.scale = Vector3(1.0, 1.0, 1.4)
+	_preview_vp.add_child(blob)
+	_preview_pivot = Node3D.new()
+	_preview_pivot.position = Vector3(0, 0.02, 0)
+	_preview_vp.add_child(_preview_pivot)
+
+	_pilot_stamp = UIStyle.label("", 72, UIStyle.SUN)
+	_pilot_stamp.anchor_left = 0.58
+	_pilot_stamp.anchor_right = 0.98
+	_pilot_stamp.anchor_top = 0.08
+	_pilot_stamp.anchor_bottom = 0.08
+	_pilot_stamp.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_pilot_stamp.rotation = deg_to_rad(-4.0)
+	_pilot_stamp.resized.connect(func() -> void: _pilot_stamp.pivot_offset = _pilot_stamp.size * 0.5)
+	_pilot_stamp.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	s.add_child(_pilot_stamp)
+	var hint := UIStyle.label("ARRASTE PARA GIRAR", 20, Color(UIStyle.CREAM, 0.85))
+	hint.anchor_left = 0.58
+	hint.anchor_right = 0.98
+	hint.anchor_top = 0.86
+	hint.anchor_bottom = 0.86
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	s.add_child(hint)
+
+
+func _refresh_pilot() -> void:
+	var cdata: Dictionary = CharacterData.get_character(Settings.character)
+	_pilot_title.text = "%s  ·  %s" % [cdata["title"], cdata["lore_category"]]
+	_pilot_stamp.text = String(cdata["name"]).to_upper()
+	_pilot_stamp.add_theme_color_override("font_color", cdata["theme_color"])
+	_pilot_stamp.scale = Vector2(0.5, 0.5)
+	create_tween().tween_property(_pilot_stamp, "scale", Vector2.ONE, 0.4).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+	for c in _pilot_rows.get_children():
+		c.queue_free()
+	var keys := _ability_keys()
+	_pilot_rows.add_child(_power_row("PASSIVA", cdata["passive"], UIStyle.LEAF))
+	_pilot_rows.add_child(_power_row(keys[0], cdata["ability_damage"], UIStyle.ORANGE))
+	_pilot_rows.add_child(_power_row(keys[1], cdata["ability_barrier"], Color("b79bff")))
+
+	if is_instance_valid(_preview_kart):
+		_preview_kart.queue_free()
+	_preview_kart = KART_SCENE.instantiate()
+	_preview_kart.is_preview = true
+	_preview_kart.character_id = Settings.character
+	_preview_kart.rotation.y = _preview_yaw
+	_preview_pivot.add_child(_preview_kart)
+
+
+func _ability_keys() -> PackedStringArray:
+	match GameInput.device:
+		GameInput.Device.GAMEPAD:
+			return PackedStringArray(["X", "Y"])
+		GameInput.Device.TOUCH:
+			return PackedStringArray(["ATAQUE", "ESCUDO"])
+		_:
+			return PackedStringArray(["Q", "E"])
+
+
+func _power_row(key: String, p: Dictionary, color: Color) -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 16)
+	row.add_child(_chip(key, 120.0, color.lightened(0.35)))
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", -2)
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var name_txt := String(p["name"]).to_upper()
+	if p.has("cooldown"):
+		name_txt += "  ·  %ds" % int(p["cooldown"])
+	col.add_child(UIStyle.label(name_txt, 24, UIStyle.CREAM))
+	var d := UIStyle.label(p["summary"], 18, Color(UIStyle.CREAM, 0.92), false)
+	d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	d.custom_minimum_size = Vector2(400, 0)
+	col.add_child(d)
+	row.add_child(col)
+	return row
+
+
+func _on_preview_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and (event as InputEventMouseButton).button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]:
+		_preview_drag = event.pressed
+	elif event is InputEventScreenTouch:
+		_preview_drag = event.pressed
+	elif event is InputEventMouseMotion and _preview_drag:
+		_preview_yaw += (event as InputEventMouseMotion).relative.x * 0.012
+	elif event is InputEventScreenDrag:
+		_preview_yaw += (event as InputEventScreenDrag).relative.x * 0.012
+
+
+# ----------------------------------------------------------------- OPÇÕES
+
+func _build_options() -> void:
+	var s := _new_screen(Screen.OPTIONS)
+	var body := _make_board(s, "OPÇÕES", 820.0)
+	var items: Array[Control] = []
+
+	var vol_vals := PackedStringArray()
+	for i in 11:
+		vol_vals.append("%d%%" % (i * 10))
+	items.append(_option(body, "VOLUME", vol_vals, roundi(Settings.master_volume * 10.0), func(i: int) -> void:
+		Settings.master_volume = i / 10.0))
+	if Settings.can_change_window():
+		items.append(_option(body, "TELA", PackedStringArray(["JANELA", "TELA CHEIA"]), 1 if Settings.fullscreen else 0, func(i: int) -> void:
+			Settings.fullscreen = i == 1
+			Settings.apply_video.call_deferred()))
+		var res_vals := PackedStringArray()
+		for r: Vector2i in Settings.RESOLUTIONS:
+			res_vals.append("%d x %d" % [r.x, r.y])
+		items.append(_option(body, "RESOLUÇÃO", res_vals, Settings.resolution_index, func(i: int) -> void:
+			Settings.resolution_index = i
+			Settings.apply_video.call_deferred()))
+	items.append(_option(body, "TAMANHO DA INTERFACE", PackedStringArray(["90%", "100%", "115%", "130%"]), Settings.UI_SCALES.find(Settings.ui_scale), func(i: int) -> void:
+		Settings.ui_scale = Settings.UI_SCALES[i]))
+	items.append(_option(body, "TREMOR DA CÂMERA", PackedStringArray(["LIGADO", "DESLIGADO"]), 0 if Settings.camera_shake else 1, func(i: int) -> void:
+		Settings.camera_shake = i == 0))
+	items.append(_option(body, "MOSTRAR FPS E PING", PackedStringArray(["NÃO", "SIM"]), 1 if Settings.show_stats else 0, func(i: int) -> void:
+		Settings.show_stats = i == 1))
+	items.append(_option(body, "TOQUE: EMPURRAR SOZINHO", PackedStringArray(["SIM", "NÃO"]), 0 if Settings.auto_push else 1, func(i: int) -> void:
+		Settings.auto_push = i == 0))
+	items.append(_option(body, "TOQUE: BOTÕES", PackedStringArray(["PEQUENOS", "MÉDIOS", "GRANDES"]), Settings.TOUCH_SCALES.find(Settings.touch_scale), func(i: int) -> void:
+		Settings.touch_scale = Settings.TOUCH_SCALES[i]))
+	_gap(body, 6)
+	items.append(_item(body, "VOLTAR", _back, 34))
+	_link_focus(Screen.OPTIONS, items)
+
+
+func _option(parent: Control, caption: String, vals: PackedStringArray, idx: int, apply: Callable) -> MenuItem:
+	var m := MenuItem.new(caption, 30)
+	m.set_values(vals, idx if idx >= 0 else 1)
+	m.value_changed.connect(func(i: int) -> void:
+		apply.call(i)
+		Settings.save_settings())
+	parent.add_child(m)
+	return m
+
+
+# ----------------------------------------------------------------- COMO JOGAR
+
+func _build_howto() -> void:
+	var s := _new_screen(Screen.HOWTO)
+	var body := _make_board(s, "COMO JOGAR", 820.0)
+	_howto_rows = VBoxContainer.new()
+	_howto_rows.add_theme_constant_override("separation", 8)
+	body.add_child(_howto_rows)
+	_gap(body, 6)
+	var back := _item(body, "VOLTAR", _back, 36)
+	_link_focus(Screen.HOWTO, [back] as Array[Control])
+
+
+func _refresh_device_texts() -> void:
+	if _title_hint:
+		_title_hint.text = "TOQUE PARA COMEÇAR" if GameInput.device == GameInput.Device.TOUCH else "APERTE QUALQUER BOTÃO"
+	if _current == Screen.PILOTS:
+		_refresh_pilot()
+	if _howto_rows == null:
+		return
+	for c in _howto_rows.get_children():
+		c.queue_free()
+	var rows: Array
+	match GameInput.device:
+		GameInput.Device.GAMEPAD:
+			rows = [["A  /  RT", "empurrar o carrinho"], ["B  /  LT", "frear e dar ré"], ["ANALÓGICO", "virar com os pés"],
+				["RB", "pulinho"], ["X  /  Y", "ataque e escudo do piloto"], ["SELECT", "voltar para a pista"], ["START", "pausa"]]
+		GameInput.Device.TOUCH:
+			rows = [["ARRASTE", "na metade esquerda para virar"], ["FREIO", "botão vermelho (o carrinho embala sozinho)"],
+				["PULO", "botão amarelo"], ["ATAQUE / ESCUDO", "poderes do piloto"], ["SETA", "botão azul volta para a pista"], ["II", "pausa (canto de cima)"]]
+		_:
+			rows = [["W  /  ↑", "empurrar o carrinho"], ["S  /  ↓", "frear e dar ré"], ["A D  /  ← →", "virar com os pés"],
+				["ESPAÇO", "pulinho"], ["Q  /  E", "ataque e escudo do piloto"], ["R", "voltar para a pista"], ["ESC", "pausa"]]
+	for r in rows:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 18)
+		row.add_child(_chip(r[0], 240.0))
+		var l := UIStyle.label(r[1], 24, UIStyle.CREAM, false)
+		l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(l)
+		_howto_rows.add_child(row)
+	var tip := UIStyle.label("Rua AZUL = descida: ganha embalo.  LARANJA = lombada: salta e perde velocidade!", 21, UIStyle.SUN, false)
+	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tip.custom_minimum_size = Vector2(740, 0)
+	_howto_rows.add_child(tip)
+
+
+# ----------------------------------------------------------------- PAUSA / CONFIRMAÇÃO / RESULTADO
+
+func _build_pause() -> void:
+	var s := _new_screen(Screen.PAUSE)
+	var body := _make_board(s, "PAUSA", 560.0)
+	var items: Array[Control] = []
+	items.append(_item(body, "CONTINUAR", _back, 42))
+	items.append(_item(body, "VOLTAR AO TOPO", _on_restart_top, 42))
+	items.append(_item(body, "COMO JOGAR", func() -> void: _go(Screen.HOWTO), 42))
+	items.append(_item(body, "OPÇÕES", func() -> void: _go(Screen.OPTIONS), 42))
+	items.append(_item(body, "SAIR DA PARTIDA", func() -> void: _go(Screen.CONFIRM_LEAVE), 42))
+	_link_focus(Screen.PAUSE, items)
+
+
+func _build_confirm() -> void:
+	var s := _new_screen(Screen.CONFIRM_LEAVE)
+	var body := _make_board(s, "SAIR DA PARTIDA?", 580.0)
+	var msg := UIStyle.label("Você volta para o menu principal e perde esta descida.", 22, UIStyle.CREAM, false)
+	msg.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	msg.custom_minimum_size = Vector2(500, 0)
+	body.add_child(msg)
+	_gap(body, 8)
+	var no := _item(body, "NÃO, CONTINUAR", _back, 42)
+	var yes := _item(body, "SIM, SAIR", _on_leave_confirmed, 42)
+	_link_focus(Screen.CONFIRM_LEAVE, [no, yes] as Array[Control], no)
+
+
+func _build_results() -> void:
+	var s := _new_screen(Screen.RESULTS)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	_center(col, 10.0)
+	s.add_child(col)
+	_results_stamp = UIStyle.label("CHEGOU!", 128, UIStyle.SUN)
+	_results_stamp.add_theme_constant_override("outline_size", 34)
+	_results_stamp.add_theme_constant_override("shadow_outline_size", 34)
+	_results_stamp.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_results_stamp.resized.connect(func() -> void: _results_stamp.pivot_offset = _results_stamp.size * 0.5)
+	col.add_child(_results_stamp)
+	_results_time = UIStyle.label("00:00.00", 68, UIStyle.CREAM)
+	_results_time.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(_results_time)
+	_results_best = UIStyle.label("", 30, UIStyle.SKY)
+	_results_best.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(_results_best)
+	_gap(col, 14)
+	var list := VBoxContainer.new()
+	list.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	col.add_child(list)
+	var again := _item(list, "DESCER DE NOVO", _on_restart_top, 42)
+	var leave := _item(list, "SAIR DA PARTIDA", func() -> void: _go(Screen.CONFIRM_LEAVE), 42)
+	_link_focus(Screen.RESULTS, [again, leave] as Array[Control], again)
+
+
+func _show_results(kart: Kart) -> void:
+	_results_shown = true
+	var t := kart.finished_time
+	var record := false if _debug_capture else Settings.submit_time(t)
+	_results_time.text = _fmt_time(t)
+	_results_best.text = "NOVO RECORDE!" if record else "RECORDE: %s" % _fmt_time(Settings.best_time)
+	_results_best.add_theme_color_override("font_color", UIStyle.SUN if record else UIStyle.SKY)
+	_go(Screen.RESULTS)
+	_results_stamp.scale = Vector2(2.4, 2.4)
+	_results_stamp.rotation = deg_to_rad(-16.0)
+	var tw := create_tween().set_parallel(true)
+	tw.tween_property(_results_stamp, "scale", Vector2.ONE, 0.45).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_property(_results_stamp, "rotation", deg_to_rad(-5.0), 0.6).set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT)
+
+
+# ----------------------------------------------------------------- elementos globais
+
+func _build_prompts() -> void:
+	_prompts = PromptBar.new()
+	_prompts.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	_prompts.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	_prompts.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_prompts.offset_right = -30
+	_prompts.offset_bottom = -24
+	_prompts.prompt_pressed.connect(_on_prompt)
+	_root.add_child(_prompts)
+
+
+func _build_toast() -> void:
+	_toast = PanelContainer.new()
+	var tb := UIStyle.paper_box(14.0)
+	tb.content_margin_left = 22
+	tb.content_margin_right = 22
+	_toast.add_theme_stylebox_override("panel", tb)
+	_toast.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	_toast.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_toast.offset_top = 150
+	_toast.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_toast_label = UIStyle.ink_label("", 22)
+	_toast.add_child(_toast_label)
+	_toast.visible = false
+	_root.add_child(_toast)
+
+
+func _toast_msg(text: String) -> void:
+	_toast_label.text = text
+	_toast.visible = true
+	_toast.modulate.a = 0.0
+	if _toast_tween:
+		_toast_tween.kill()
+	_toast_tween = create_tween()
+	_toast_tween.tween_property(_toast, "modulate:a", 1.0, 0.18)
+	_toast_tween.tween_interval(3.2)
+	_toast_tween.tween_property(_toast, "modulate:a", 0.0, 0.4)
+	_toast_tween.tween_callback(func() -> void: _toast.visible = false)
+
+
+func _build_rotate_overlay() -> void:
+	_rotate_overlay = ColorRect.new()
+	(_rotate_overlay as ColorRect).color = Color(UIStyle.INK, 0.94)
+	_rotate_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_rotate_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	var col := VBoxContainer.new()
+	_center(col)
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	var a := UIStyle.label("GIRE O CELULAR", 64, UIStyle.SUN)
+	a.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(a)
+	var b := UIStyle.label("o Rolimã é jogado na horizontal", 26, UIStyle.CREAM, false)
+	b.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(b)
+	_rotate_overlay.add_child(col)
+	_rotate_overlay.visible = false
+	_root.add_child(_rotate_overlay)
+
+
+func _update_rotate_overlay() -> void:
+	var sz := get_viewport().get_visible_rect().size
+	_rotate_overlay.visible = GameInput.is_touch_platform() and sz.y > sz.x * 1.05
+
+
+# =========================================================== HUD
+
+func _build_hud() -> void:
+	_hud = _full_rect_control()
+	_hud.visible = false
+	_root.add_child(_hud)
+
+	var top := VBoxContainer.new()
+	top.add_theme_constant_override("separation", 8)
+	top.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	top.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	top.offset_top = 16
+	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hud.add_child(top)
+	var plaque := PanelContainer.new()
+	var pb := UIStyle.wood_box(1, true)
+	pb.corner_radius = 14.0
+	pb.content_margin_left = 28
+	pb.content_margin_right = 28
+	pb.content_margin_top = 8
+	pb.content_margin_bottom = 4
+	plaque.add_theme_stylebox_override("panel", pb)
+	plaque.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	plaque.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_timer_lbl = UIStyle.label("00:00.00", 38, UIStyle.CREAM)
+	_timer_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_timer_lbl.custom_minimum_size.x = 190
+	plaque.add_child(_timer_lbl)
+	top.add_child(plaque)
+	_progress = ProgressRope.new()
+	_progress.custom_minimum_size = Vector2(460, 34)
+	_progress.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_progress.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top.add_child(_progress)
+
+	_speed_box = VBoxContainer.new()
+	_speed_box.add_theme_constant_override("separation", -16)
+	_speed_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_speed_lbl = UIStyle.label("0", 88, UIStyle.CREAM)
+	_speed_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_speed_box.add_child(_speed_lbl)
+	_speed_unit = UIStyle.label("KM/H", 28, UIStyle.SUN)
+	_speed_unit.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_speed_box.add_child(_speed_unit)
+	_hud.add_child(_speed_box)
+
+	_abilities = AbilityHud.new()
+	_abilities.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_abilities.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_abilities.offset_left = 28
+	_abilities.offset_right = 28 + 250
+	_abilities.offset_top = -180
+	_abilities.offset_bottom = -20
+	_abilities.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hud.add_child(_abilities)
+
+	_callout = UIStyle.label("", 64, UIStyle.SKY)
+	_callout.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_center(_callout, 140.0)
+	_callout.resized.connect(func() -> void: _callout.pivot_offset = _callout.size * 0.5)
+	_callout.modulate.a = 0.0
+	_hud.add_child(_callout)
+
+	_stats_lbl = UIStyle.label("", 18, UIStyle.CREAM, false)
+	_stats_lbl.position = Vector2(20, 16)
+	_hud.add_child(_stats_lbl)
+
+	_pause_btn = Button.new()
+	_pause_btn.text = "II"
+	_pause_btn.focus_mode = Control.FOCUS_NONE
+	_pause_btn.add_theme_font_override("font", UIStyle.display_font())
+	_pause_btn.add_theme_font_size_override("font_size", 34)
+	for k in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+		_pause_btn.add_theme_color_override(k, UIStyle.INK)
+	var nb := UIStyle.paper_box(38.0)
+	var pressed_box := UIStyle.paper_box(38.0)
+	pressed_box.fill = UIStyle.SUN
+	pressed_box.shadow_offset = Vector2(0, 2)
+	_pause_btn.add_theme_stylebox_override("normal", nb)
+	_pause_btn.add_theme_stylebox_override("hover", nb)
+	_pause_btn.add_theme_stylebox_override("pressed", pressed_box)
+	_pause_btn.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	_pause_btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_pause_btn.offset_left = -24 - 78
+	_pause_btn.offset_right = -24
+	_pause_btn.offset_top = 22
+	_pause_btn.offset_bottom = 22 + 78
+	_pause_btn.pressed.connect(func() -> void:
+		if _current == Screen.HUD:
+			_go(Screen.PAUSE))
+	_hud.add_child(_pause_btn)
+
+
+func _layout_hud() -> void:
+	if _speed_box == null:
+		return
+	var touch := GameInput.device == GameInput.Device.TOUCH
+	_speed_box.set_anchors_preset(Control.PRESET_TOP_RIGHT if touch else Control.PRESET_BOTTOM_RIGHT)
+	_speed_box.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	_speed_box.grow_vertical = Control.GROW_DIRECTION_END if touch else Control.GROW_DIRECTION_BEGIN
+	if touch:
+		# No celular o canto de baixo é dos botões: velocidade sobe para perto da pausa.
+		_speed_box.offset_right = -24 - 78 - 22
+		_speed_box.offset_left = _speed_box.offset_right
+		_speed_box.offset_top = 6
+		_speed_box.offset_bottom = 6
+		_speed_lbl.add_theme_font_size_override("font_size", 60)
+		_speed_unit.add_theme_font_size_override("font_size", 22)
+	else:
+		_speed_box.offset_right = -32
+		_speed_box.offset_left = -32
+		_speed_box.offset_bottom = -18
+		_speed_box.offset_top = -18
+		_speed_lbl.add_theme_font_size_override("font_size", 88)
+		_speed_unit.add_theme_font_size_override("font_size", 28)
+
+
+func _process(delta: float) -> void:
+	_t += delta
+	if _current == Screen.TITLE:
+		_title_logo.rotation = sin(_t * 1.6) * 0.025
+		_title_logo.scale = Vector2.ONE * (1.0 + sin(_t * 2.2) * 0.015)
+		_title_hint.modulate.a = 0.55 + 0.45 * absf(sin(_t * 2.6))
+		_title_hint.scale = Vector2.ONE * (1.0 + absf(sin(_t * 2.6)) * 0.05)
+	elif _current == Screen.PILOTS and is_instance_valid(_preview_kart):
+		if not _preview_drag:
+			_preview_yaw += delta * 0.45
+		_preview_kart.rotation.y = _preview_yaw
+	if _in_session:
+		_set_kart_controls(_current == Screen.HUD)
+	if not _hud.visible:
+		return
+
+	var kart := get_tree().get_first_node_in_group("local_kart") as Kart
+	var world := get_tree().current_scene.get_node_or_null("World")
+	var online := not _is_offline()
+	var players := get_tree().get_nodes_in_group("karts").size()
+	var lines: PackedStringArray = []
+	if online:
+		lines.append("%s · %d PILOTOS" % ["HOST" if multiplayer.is_server() else "ONLINE", players])
+	if Settings.show_stats:
+		lines.append("%d FPS%s" % [Engine.get_frames_per_second(), "" if Net.ping_ms < 0 else " · %d ms" % Net.ping_ms])
+	_stats_lbl.text = "\n".join(lines)
+	_touch.kart = kart
+	_abilities.kart = kart
+	_abilities.queue_redraw()
+	if kart == null:
+		return
+
+	var ratio := kart.get_speed_ratio()
+	_speed_lbl.text = str(roundi(kart.get_speed_kmh()))
+	var sc := UIStyle.CREAM.lerp(UIStyle.SUN, clampf(ratio * 1.4 - 0.4, 0.0, 1.0))
+	if ratio > 1.15:
+		sc = UIStyle.SUN.lerp(UIStyle.ORANGE, clampf((ratio - 1.15) * 3.0, 0.0, 1.0))
+	_speed_lbl.add_theme_color_override("font_color", sc)
+
+	var t := kart.finished_time if kart.finished_time > 0.0 else kart.race_time
+	_timer_lbl.text = _fmt_time(t)
+
+	if world and world.has_method("compute_progress"):
+		var markers: Array = []
+		for k in get_tree().get_nodes_in_group("karts"):
+			var kk := k as Kart
+			var is_me := kk == kart
+			var col: Color = Kart.KART_COLORS[kk.slot % Kart.KART_COLORS.size()]
+			var entry := [world.compute_progress(kk.ball.global_position), col, is_me]
+			if is_me:
+				markers.append(entry)
+			else:
+				markers.push_front(entry)
+		_progress.markers = markers
+		_progress.queue_redraw()
+
+	if kart.finished_time > 0.0 and not _results_shown and _current == Screen.HUD:
+		_show_results(kart)
+
+	_update_callout(kart, delta)
+
+
+func _update_callout(kart: Kart, delta: float) -> void:
+	var st := ""
+	if not kart.grounded and kart.air_time > 0.25:
+		st = "air"
+	elif kart.slope_grade > 0.11 and kart.fwd_speed > 10.0:
+		st = "down"
+	elif kart.slope_grade < -0.05 and kart.fwd_speed > 8.0:
+		st = "up"
+	if st != "":
+		_callout_hold = 0.45
+	else:
+		_callout_hold -= delta
+	if st != "" and st != _callout_state:
+		_callout_state = st
+		match st:
+			"air":
+				_callout.text = "NO AR!"
+				_callout.add_theme_color_override("font_color", UIStyle.ORANGE)
+			"down":
+				_callout.text = "DESCIDA!"
+				_callout.add_theme_color_override("font_color", UIStyle.SKY)
+			"up":
+				_callout.text = "LOMBADA!"
+				_callout.add_theme_color_override("font_color", UIStyle.SUN)
+		if _callout_tween:
+			_callout_tween.kill()
+		_callout.modulate.a = 1.0
+		_callout.scale = Vector2(0.4, 0.4)
+		_callout.rotation = deg_to_rad(randf_range(-5.0, 5.0))
+		_callout_tween = create_tween()
+		_callout_tween.tween_property(_callout, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	elif st == "" and _callout_state != "" and _callout_hold <= 0.0:
+		_callout_state = ""
+		if _callout_tween:
+			_callout_tween.kill()
+		_callout_tween = create_tween()
+		_callout_tween.tween_property(_callout, "modulate:a", 0.0, 0.25)
+
+
+static func _fmt_time(t: float) -> String:
+	var mins := int(t) / 60
+	return "%02d:%05.2f" % [mins, fmod(t, 60.0)]
+
+
+# =========================================================== depuração (capturas de tela)
+
+## godot --path . -- --ui-shot=main --shot-out=C:/tmp/main.png [--fake-touch]
+func debug_capture(screen_name: String, out_path: String) -> void:
+	_debug_capture = true
+	await get_tree().process_frame
+	var needs_session := screen_name in ["hud", "pause", "confirm", "results"]
+	if screen_name != "title":
+		_go(Screen.MAIN, false)
+	if needs_session:
+		practice_requested.emit("Teste")
+		await get_tree().process_frame
+		if screen_name == "hud":
+			Input.action_press(&"accelerate")
+			Input.action_press(&"steer_left", 0.3)
+	match screen_name:
+		"online":
+			_go(Screen.ONLINE)
+		"pilots":
+			_go(Screen.PILOTS)
+		"options":
+			_go(Screen.OPTIONS)
+		"howto":
+			_go(Screen.HOWTO)
+		"pause":
+			_go(Screen.PAUSE)
+		"confirm":
+			_go(Screen.PAUSE)
+			_go(Screen.CONFIRM_LEAVE)
+		"results":
+			var k := get_tree().get_first_node_in_group("local_kart") as Kart
+			if k:
+				k.finished_time = 161.37
+	await get_tree().create_timer(6.0 if screen_name == "hud" else 3.5, true, false, true).timeout
+	await RenderingServer.frame_post_draw
+
+	var img := get_viewport().get_texture().get_image()
+	img.convert(Image.FORMAT_RGB8)
+	img.save_png(out_path)
+	print("[UI] captura salva em ", out_path)
+	get_tree().quit()
+
+
+# =========================================================== barra de progresso (corda)
+
+class ProgressRope:
+	extends Control
+	## Corda da largada até a bandeira, com a bolinha de cada piloto (a sua é maior).
+
+	var markers: Array = [] ## [[ratio, cor, é_o_jogador_local], ...]
+
+	func _draw() -> void:
+		var y := size.y * 0.5
+		var x0 := 12.0
+		var x1 := size.x - 34.0
+		draw_line(Vector2(x0, y + 4), Vector2(x1, y + 4), Color(0, 0, 0, 0.35), 12.0, true)
+		draw_line(Vector2(x0, y), Vector2(x1, y), UIStyle.INK, 12.0, true)
+		draw_line(Vector2(x0, y), Vector2(x1, y), UIStyle.WOOD_LIGHT, 6.0, true)
+		for i in 10:
+			var x := lerpf(x0, x1, (i + 0.5) / 10.0)
+			draw_line(Vector2(x - 3, y - 3), Vector2(x + 3, y + 3), Color(UIStyle.INK, 0.55), 2.0, true)
+		# bandeira quadriculada de chegada
+		var fx := x1 + 6.0
+		draw_line(Vector2(fx, y + 12), Vector2(fx, y - 15), UIStyle.INK, 4.0, true)
+		var cell := 6.0
+		var flag := Rect2(fx + 1, y - 16, cell * 4, cell * 3)
+		draw_rect(flag.grow(2), UIStyle.INK)
+		for cx in 4:
+			for cy in 3:
+				var c := UIStyle.CREAM if (cx + cy) % 2 == 0 else UIStyle.INK
+				draw_rect(Rect2(flag.position + Vector2(cx, cy) * cell, Vector2(cell, cell)), c)
+		draw_circle(Vector2(x0, y), 7.0, UIStyle.INK)
+		draw_circle(Vector2(x0, y), 4.0, UIStyle.LEAF)
+		for m in markers:
+			var x := lerpf(x0, x1, float(m[0]))
+			var r := 11.0 if m[2] else 7.0
+			draw_circle(Vector2(x, y + 2), r + 3.0, Color(0, 0, 0, 0.35))
+			draw_circle(Vector2(x, y), r + 3.0, UIStyle.INK)
+			draw_circle(Vector2(x, y), r, m[1])
+
+
+# =========================================================== habilidades no HUD (teclado/controle)
+
+class AbilityHud:
+	extends Control
+	## Nome do piloto + dois "medalhões" (ataque e escudo) com recarga em pizza e a tecla embaixo.
+
+	var kart: Kart
+
+	func _draw() -> void:
+		if kart == null:
+			return
+		var font := UIStyle.display_font()
+		var cdata: Dictionary = CharacterData.get_character(kart.character_id)
+		var name_txt := String(cdata["name"]).to_upper()
+		var base_y := size.y - 28.0
+		_text(font, name_txt, Vector2(4, 24), 26, cdata["theme_color"], false)
+		var keys := ["X", "Y"] if GameInput.device == GameInput.Device.GAMEPAD else ["Q", "E"]
+		var specs := [
+			[kart.damage_cooldown, kart.damage_max_cooldown, UIStyle.ORANGE, "ATAQUE", false],
+			[kart.barrier_cooldown, kart.barrier_max_cooldown, Color("9a6cff"), "ESCUDO", kart.is_barrier_active()],
+		]
+		for i in 2:
+			var c := Vector2(48 + i * 108, base_y - 44)
+			var r := 38.0
+			var left: float = specs[i][0]
+			var total: float = specs[i][1]
+			var col: Color = specs[i][2]
+			var active: bool = specs[i][4]
+			draw_circle(c + Vector2(0, 5), r, Color(0, 0, 0, 0.35))
+			draw_circle(c, r, UIStyle.INK)
+			draw_circle(c, r - 5, col if left <= 0.0 else col.darkened(0.45))
+			draw_circle(c + Vector2(0, -r * 0.38), r * 0.42, Color(1, 1, 1, 0.16))
+			if active:
+				draw_arc(c, r + 4, 0, TAU, 40, UIStyle.SKY, 6.0, true)
+			if left > 0.0:
+				var frac := clampf(left / maxf(total, 0.01), 0.0, 1.0)
+				var pts := PackedVector2Array([c])
+				for k in 25:
+					var ang := -PI * 0.5 + TAU * frac * float(k) / 24.0
+					pts.append(c + Vector2(cos(ang), sin(ang)) * (r - 5))
+				draw_colored_polygon(pts, Color(UIStyle.INK, 0.55))
+				_text(font, str(ceili(left)), c + Vector2(0, 10), 30, UIStyle.CREAM, true)
+			else:
+				_text(font, specs[i][3], c + Vector2(0, 7), 15, UIStyle.CREAM, true)
+			# tecla embaixo do medalhão
+			var kc := Rect2(c.x - 18, c.y + r + 2, 36, 28)
+			draw_colored_polygon(CartoonBox.rounded_points(kc, 7.0), UIStyle.INK)
+			draw_colored_polygon(CartoonBox.rounded_points(kc.grow(-3), 5.0), UIStyle.CREAM)
+			_text(font, keys[i], Vector2(c.x, kc.position.y + 22), 20, UIStyle.INK, true, false)
+
+	func _text(font: Font, t: String, pos: Vector2, px: int, color: Color, centered: bool, outline := true) -> void:
+		var p := pos
+		if centered:
+			p.x -= font.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x * 0.5
+		if outline:
+			draw_string_outline(font, p, t, HORIZONTAL_ALIGNMENT_LEFT, -1, px, maxi(6, int(px * 0.32)), UIStyle.INK)
+		draw_string(font, p, t, HORIZONTAL_ALIGNMENT_LEFT, -1, px, color)
+
+
+# =========================================================== sombreado lateral dos menus
+
+class SideShade:
+	extends Control
+	## Degradê escuro da esquerda para a direita (dá contraste às placas sem esconder o mundo).
+
+	func _draw() -> void:
+		var w := size.x
+		var h := size.y
+		var a := Color(UIStyle.INK, 0.7)
+		var b := Color(UIStyle.INK, 0.38)
+		var c := Color(UIStyle.INK, 0.0)
+		draw_polygon(PackedVector2Array([Vector2(0, 0), Vector2(w * 0.42, 0), Vector2(w * 0.42, h), Vector2(0, h)]),
+				PackedColorArray([a, b, b, a]))
+		draw_polygon(PackedVector2Array([Vector2(w * 0.42, 0), Vector2(w * 0.85, 0), Vector2(w * 0.85, h), Vector2(w * 0.42, h)]),
+				PackedColorArray([b, c, c, b]))
