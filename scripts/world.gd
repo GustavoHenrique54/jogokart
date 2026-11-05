@@ -308,7 +308,9 @@ func _build_single_chunk(i_start: int, i_end: int, mat: Material) -> void:
 	var body := StaticBody3D.new()
 	body.collision_layer = 1
 	var cs := CollisionShape3D.new()
-	cs.shape = mesh.create_trimesh_shape()
+	var shape := mesh.create_trimesh_shape()
+	shape.backface_collision = true
+	cs.shape = shape
 	body.add_child(cs)
 	add_child(body)
 
@@ -339,7 +341,10 @@ func _slope_color(delta_slope: float, slice_j: int, ring_i: int) -> Color:
 
 func _add_quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3, col: Color) -> void:
 	st.set_color(col)
-	for v in [a, b, c, a, c, d]:
+	# Em Godot + Jolt Physics, a face frontal (normal para cima/dentro da pista) precisa
+	# de produto vetorial (v1 - v0).cross(v2 - v0) apontando na direção esperada, e também
+	# habilitamos backface_collision na ConcavePolygonShape3D para segurança total.
+	for v in [a, c, b, a, d, c]:
 		st.add_vertex(v)
 
 
