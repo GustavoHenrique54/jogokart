@@ -249,16 +249,16 @@ func _local_physics(delta: float) -> void:
 	var steer_in := 0.0
 	var hop_pressed := false
 	if controls_enabled:
-		accel_in = Input.get_action_strength("accelerate")
-		brake_in = Input.get_action_strength("brake")
-		steer_in = Input.get_axis("steer_right", "steer_left")
-		hop_pressed = Input.is_action_just_pressed("drift")
-		if Input.is_action_just_pressed("respawn"):
+		accel_in = GameInput.strength(&"accelerate")
+		brake_in = GameInput.strength(&"brake")
+		steer_in = GameInput.steer_axis()
+		hop_pressed = GameInput.just_pressed(&"drift")
+		if GameInput.just_pressed(&"respawn"):
 			respawn(_safe_pos, _safe_heading)
 			return
 
 		# Ativação das habilidades ativas
-		if Input.is_action_just_pressed("ability_damage") and damage_cooldown <= 0.0:
+		if GameInput.just_pressed(&"ability_damage") and damage_cooldown <= 0.0:
 			damage_cooldown = damage_max_cooldown
 			var up_vec := ground_normal if grounded else Vector3.UP
 			var fwd_f := Vector3(-sin(heading), 0.0, -cos(heading))
@@ -266,7 +266,7 @@ func _local_physics(delta: float) -> void:
 			var spawn_pt := ball.global_position + fwd_dir * 1.8 + Vector3.UP * 0.35
 			_rpc_cast_damage.rpc(spawn_pt, fwd_dir)
 
-		if Input.is_action_just_pressed("ability_barrier") and barrier_cooldown <= 0.0:
+		if GameInput.just_pressed(&"ability_barrier") and barrier_cooldown <= 0.0:
 			barrier_cooldown = barrier_max_cooldown
 			barrier_time_left = barrier_active_duration
 			_rpc_activate_barrier.rpc()
@@ -338,10 +338,11 @@ func _local_physics(delta: float) -> void:
 		var downhill_bonus := clampf(slope_grade * 65.0, -5.0, max_downhill_speed - base_flat_speed)
 		var current_top := clampf(base_flat_speed + downhill_bonus, 12.0, max_downhill_speed)
 
-		# Aceleração gravitacional da ladeira (empurra mesmo sem segurar W, mas com W rende mais)
+		# Aceleração da ladeira: a descida só dá embalo enquanto o jogador está empurrando (W).
+		# Sem acelerar, o carrinho não ganha velocidade sozinho, nem descendo.
 		if slope_grade > 0.0:
-			var pump_mult := 1.25 if throttle > 0.05 else 0.92
-			fwd_speed += slope_grade * downhill_gravity_boost * pump_mult * delta
+			if throttle > 0.05:
+				fwd_speed += slope_grade * downhill_gravity_boost * 1.25 * throttle * delta
 		elif slope_grade < 0.0:
 			fwd_speed += slope_grade * uphill_gravity_drag * delta
 
@@ -361,10 +362,10 @@ func _local_physics(delta: float) -> void:
 			else:
 				fwd_speed = move_toward(fwd_speed, -reverse_speed, reverse_accel * delta)
 		else:
+			# Soltou o W: vai perdendo embalo até parar (em qualquer inclinação).
 			if fwd_speed > current_top:
 				fwd_speed = move_toward(fwd_speed, current_top, overspeed_bleed * delta)
-			elif slope_grade <= 0.02:
-				fwd_speed = move_toward(fwd_speed, 0.0, coast_decel * delta)
+			fwd_speed = move_toward(fwd_speed, 0.0, coast_decel * delta)
 
 		fwd_speed = clampf(fwd_speed, -reverse_speed, max_downhill_speed)
 		lat *= exp(-grip * delta)

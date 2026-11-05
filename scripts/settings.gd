@@ -18,7 +18,6 @@ var resolution_index := 2
 var ui_scale := 1.0
 var camera_shake := true
 var show_stats := false
-var auto_push := true ## toque: o carrinho embala sozinho, o jogador só vira e freia
 var touch_scale := 1.0
 var best_time := 0.0
 
@@ -43,7 +42,6 @@ func load_settings() -> bool:
 	ui_scale = cfg.get_value("video", "ui_scale", 1.0)
 	camera_shake = cfg.get_value("video", "camera_shake", true)
 	show_stats = cfg.get_value("video", "show_stats", false)
-	auto_push = cfg.get_value("touch", "auto_push", true)
 	touch_scale = cfg.get_value("touch", "scale", 1.0)
 	best_time = cfg.get_value("records", "best_time", 0.0)
 	return true
@@ -60,7 +58,6 @@ func save_settings() -> void:
 	cfg.set_value("video", "ui_scale", ui_scale)
 	cfg.set_value("video", "camera_shake", camera_shake)
 	cfg.set_value("video", "show_stats", show_stats)
-	cfg.set_value("touch", "auto_push", auto_push)
 	cfg.set_value("touch", "scale", touch_scale)
 	cfg.set_value("records", "best_time", best_time)
 	cfg.save(PATH)

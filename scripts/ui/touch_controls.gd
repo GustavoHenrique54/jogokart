@@ -7,11 +7,9 @@ extends Control
 ##   a base acompanha, então nunca "trava" no limite.
 ## - DIREITA = botões grandes na zona natural do polegar (EMPURRA / FREIO / PULO). A área de toque
 ##   é maior que o desenho, e o botão continua pressionado mesmo se o dedo escorregar para fora.
-## - "Empurrar sozinho" (padrão no toque): o carrinho embala sozinho e o jogador só precisa
-##   virar e frear — joga confortável com dois polegares.
 ## - O botão de reposicionar fica pequeno e longe (perto da pausa) para não ser tocado sem querer.
-## - Os toques viram ações do InputMap (Input.action_press), então o kart não sabe de onde veio
-##   o comando: teclado, controle e toque usam exatamente a mesma física.
+## - Os toques vão para GameInput (touch_steer / set_touch_held), que o kart soma ao teclado e ao
+##   controle. Não usamos Input.action_press(): outros dispositivos sobrescrevem esse estado.
 
 const STICK_RADIUS := 96.0
 const DEADZONE := 0.08
@@ -68,23 +66,15 @@ func _layout() -> void:
 	var s := Settings.touch_scale
 	var m := 30.0 * s
 	var br := Vector2(size.x - m, size.y - m)
-	var auto := Settings.auto_push
-	var push := _btn(&"accelerate")
-	var brake := _btn(&"brake")
-	# Botão principal no canto (o mais usado fica onde o polegar descansa);
-	# os secundários formam um arco em volta dele, todos alcançáveis sem esticar o dedo.
+	# EMPURRA (o mais usado) fica no canto, onde o polegar descansa; os outros formam um arco
+	# em volta dele, todos alcançáveis sem esticar o dedo.
 	var main_c := br - Vector2(112, 112) * s
-	var main_btn := brake if auto else push
-	push["shown"] = not auto
-	main_btn["center"] = main_c
-	main_btn["radius"] = 86.0 * s
-	var arc: Array[StringName] = [&"drift", &"ability_barrier", &"ability_damage"]
-	var angles: Array[float] = [186.0, 229.0, 272.0]
-	var arc_r := 192.0
-	if not auto:
-		arc = [&"brake", &"drift", &"ability_barrier", &"ability_damage"]
-		angles = [180.0, 214.0, 248.0, 282.0]
-		arc_r = 208.0
+	var push := _btn(&"accelerate")
+	push["center"] = main_c
+	push["radius"] = 86.0 * s
+	var arc: Array[StringName] = [&"brake", &"drift", &"ability_barrier", &"ability_damage"]
+	var angles: Array[float] = [180.0, 214.0, 248.0, 282.0]
+	var arc_r := 208.0
 	for i in arc.size():
 		var b := _btn(arc[i])
 		var a := deg_to_rad(angles[i])
@@ -113,7 +103,7 @@ func _input(event: InputEvent) -> void:
 			for b in _buttons:
 				if b["shown"] and int(b["touch"]) == -1 and p.distance_to(b["center"]) <= float(b["radius"]) * 1.3:
 					b["touch"] = event.index
-					Input.action_press(b["action"])
+					GameInput.set_touch_held(b["action"], true)
 					queue_redraw()
 					get_viewport().set_input_as_handled()
 					return
@@ -131,7 +121,7 @@ func _input(event: InputEvent) -> void:
 			for b in _buttons:
 				if int(b["touch"]) == event.index:
 					b["touch"] = -1
-					Input.action_release(b["action"])
+					GameInput.set_touch_held(b["action"], false)
 					queue_redraw()
 	elif event is InputEventScreenDrag and event.index == _stick_touch:
 		_stick_pos = (make_input_local(event) as InputEventScreenDrag).position
@@ -160,22 +150,13 @@ func _update_steer() -> void:
 
 func _set_steer(v: float) -> void:
 	_steer = v
-	if v < 0.0:
-		Input.action_press(&"steer_left", -v)
-		Input.action_release(&"steer_right")
-	elif v > 0.0:
-		Input.action_press(&"steer_right", v)
-		Input.action_release(&"steer_left")
-	else:
-		Input.action_release(&"steer_left")
-		Input.action_release(&"steer_right")
+	GameInput.touch_steer = -v # v < 0 = esquerda; no GameInput, positivo = esquerda
 
 
 func _release_all() -> void:
 	_stick_touch = -1
 	_steer = 0.0
-	for a in [&"steer_left", &"steer_right", &"accelerate", &"brake", &"drift", &"respawn", &"ability_damage", &"ability_barrier"]:
-		Input.action_release(a)
+	GameInput.clear_touch()
 	for b in _buttons:
 		b["touch"] = -1
 	queue_redraw()
@@ -185,12 +166,6 @@ func _process(_delta: float) -> void:
 	if not active:
 		return
 	queue_redraw()
-	# Empurrar sozinho: embala enquanto o freio não estiver apertado.
-	if Settings.auto_push:
-		if int(_btn(&"brake")["touch"]) == -1:
-			Input.action_press(&"accelerate")
-		else:
-			Input.action_release(&"accelerate")
 
 
 # ----------------------------------------------------------------- desenho

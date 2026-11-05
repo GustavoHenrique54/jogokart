@@ -828,8 +828,6 @@ func _build_options() -> void:
 		Settings.camera_shake = i == 0))
 	items.append(_option(body, "MOSTRAR FPS E PING", PackedStringArray(["NÃO", "SIM"]), 1 if Settings.show_stats else 0, func(i: int) -> void:
 		Settings.show_stats = i == 1))
-	items.append(_option(body, "TOQUE: EMPURRAR SOZINHO", PackedStringArray(["SIM", "NÃO"]), 0 if Settings.auto_push else 1, func(i: int) -> void:
-		Settings.auto_push = i == 0))
 	items.append(_option(body, "TOQUE: BOTÕES", PackedStringArray(["PEQUENOS", "MÉDIOS", "GRANDES"]), Settings.TOUCH_SCALES.find(Settings.touch_scale), func(i: int) -> void:
 		Settings.touch_scale = Settings.TOUCH_SCALES[i]))
 	_gap(body, 6)
@@ -875,7 +873,7 @@ func _refresh_device_texts() -> void:
 			rows = [["A  /  RT", "empurrar o carrinho"], ["B  /  LT", "frear e dar ré"], ["ANALÓGICO", "virar com os pés"],
 				["RB", "pulinho"], ["X  /  Y", "ataque e escudo do piloto"], ["SELECT", "voltar para a pista"], ["START", "pausa"]]
 		GameInput.Device.TOUCH:
-			rows = [["ARRASTE", "na metade esquerda para virar"], ["FREIO", "botão vermelho (o carrinho embala sozinho)"],
+			rows = [["ARRASTE", "na metade esquerda para virar"], ["EMPURRA", "botão verde (segure para ganhar embalo)"], ["FREIO", "botão vermelho"],
 				["PULO", "botão amarelo"], ["ATAQUE / ESCUDO", "poderes do piloto"], ["SETA", "botão azul volta para a pista"], ["II", "pausa (canto de cima)"]]
 		_:
 			rows = [["W  /  ↑", "empurrar o carrinho"], ["S  /  ↓", "frear e dar ré"], ["A D  /  ← →", "virar com os pés"],
@@ -888,7 +886,7 @@ func _refresh_device_texts() -> void:
 		l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		row.add_child(l)
 		_howto_rows.add_child(row)
-	var tip := UIStyle.label("Rua AZUL = descida: ganha embalo.  LARANJA = lombada: salta e perde velocidade!", 21, UIStyle.SUN, false)
+	var tip := UIStyle.label("Segure EMPURRAR: nas descidas AZUIS o embalo cresce muito. Soltou, o carrinho vai parando. LARANJA = lombada: salta e perde velocidade!", 21, UIStyle.SUN, false)
 	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	tip.custom_minimum_size = Vector2(740, 0)
 	_howto_rows.add_child(tip)
@@ -1255,11 +1253,27 @@ static func _fmt_time(t: float) -> String:
 
 # =========================================================== depuração (capturas de tela)
 
+func _debug_touch(idx: int, pos: Vector2, pressed: bool) -> void:
+	var ev := InputEventScreenTouch.new()
+	ev.index = idx
+	ev.position = pos
+	ev.pressed = pressed
+	Input.parse_input_event(ev)
+
+
+func _debug_drag(idx: int, pos: Vector2) -> void:
+	var ev := InputEventScreenDrag.new()
+	ev.index = idx
+	ev.position = pos
+	ev.relative = Vector2(-8, 0)
+	Input.parse_input_event(ev)
+
+
 ## godot --path . -- --ui-shot=main --shot-out=C:/tmp/main.png [--fake-touch]
 func debug_capture(screen_name: String, out_path: String) -> void:
 	_debug_capture = true
 	await get_tree().process_frame
-	var needs_session := screen_name in ["hud", "pause", "confirm", "results"]
+	var needs_session := screen_name in ["hud", "pause", "confirm", "results", "touchtest", "coast"]
 	if screen_name != "title":
 		_go(Screen.MAIN, false)
 	if needs_session:
@@ -1286,6 +1300,36 @@ func debug_capture(screen_name: String, out_path: String) -> void:
 			var k := get_tree().get_first_node_in_group("local_kart") as Kart
 			if k:
 				k.finished_time = 161.37
+		"coast":
+			# Sem nenhuma entrada: o carrinho não pode sair descendo sozinho.
+			var kc := get_tree().get_first_node_in_group("local_kart") as Kart
+			for i in 6:
+				await get_tree().create_timer(1.0, true, false, true).timeout
+				print("[COAST] t=", i + 1, "s kmh=", kc.get_speed_kmh(), " slope=", kc.slope_grade)
+			Input.action_press(&"accelerate")
+			for i in 4:
+				await get_tree().create_timer(1.0, true, false, true).timeout
+				print("[PUSH] t=", i + 1, "s kmh=", kc.get_speed_kmh(), " slope=", kc.slope_grade)
+			Input.action_release(&"accelerate")
+			for i in 4:
+				await get_tree().create_timer(1.0, true, false, true).timeout
+				print("[RELEASE] t=", i + 1, "s kmh=", kc.get_speed_kmh(), " slope=", kc.slope_grade)
+		"touchtest":
+			# Simula um polegar: segura EMPURRA e arrasta o analógico para a esquerda.
+			await get_tree().create_timer(3.0, true, false, true).timeout
+			var k := get_tree().get_first_node_in_group("local_kart") as Kart
+			var sz := get_viewport().get_visible_rect().size
+			var start := Vector2(220, sz.y - 170)
+			_debug_touch(0, start, true)
+			_debug_touch(1, Vector2(sz.x - 142, sz.y - 142), true)
+			for i in 12:
+				await get_tree().physics_frame
+				_debug_drag(0, start + Vector2(-8.0 * (i + 1), 0))
+			for i in 40:
+				await get_tree().physics_frame
+			print("[TOUCH] active=", _touch.active, " touch_steer=", GameInput.touch_steer,
+					" accel=", GameInput.strength(&"accelerate"), " kart.steer=", k.steer if k else -99.0,
+					" kmh=", k.get_speed_kmh() if k else -1.0, " device=", GameInput.device)
 	await get_tree().create_timer(6.0 if screen_name == "hud" else 3.5, true, false, true).timeout
 	await RenderingServer.frame_post_draw
 

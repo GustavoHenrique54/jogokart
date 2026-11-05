@@ -14,6 +14,16 @@ const DEADZONE := 0.2
 
 var device: int = Device.KEYBOARD
 var _forced := false
+var _last_touch_ms := -100000
+var _touch_platform := false
+
+# Entradas dos controles de toque. Ficam separadas do InputMap de propósito: um
+# Input.action_press() é sobrescrito no frame seguinte por eventos de outros dispositivos
+# ligados à mesma ação (ex.: o analógico/gatilho de um controle conectado mandando ~0),
+# o que fazia o volante e o EMPURRA do toque "não funcionarem".
+var touch_steer := 0.0 ## -1 = direita, +1 = esquerda (mesmo sinal de get_axis abaixo)
+var _touch_held := {}
+var _touch_pulses := {}
 
 
 func _ready() -> void:
@@ -26,14 +36,19 @@ func _ready() -> void:
 	_add("ability_barrier", [KEY_E, KEY_K], [JOY_BUTTON_Y], [])
 	_add("respawn", [KEY_R], [JOY_BUTTON_BACK], [])
 	_add("toggle_menu", [KEY_ESCAPE], [JOY_BUTTON_START], [])
-	if is_touch_platform():
+	_touch_platform = _detect_touch_platform()
+	if _touch_platform:
 		device = Device.TOUCH
 	elif Input.get_connected_joypads().size() > 0:
 		device = Device.GAMEPAD
 
 
-## Celular/tablet nativo ou navegador de celular.
+## Celular/tablet nativo ou navegador de celular (calculado uma vez).
 func is_touch_platform() -> bool:
+	return _touch_platform
+
+
+func _detect_touch_platform() -> bool:
 	if OS.has_feature("mobile") or OS.has_feature("web_android") or OS.has_feature("web_ios"):
 		return true
 	if OS.has_feature("web"):
@@ -41,6 +56,35 @@ func is_touch_platform() -> bool:
 		var v: Variant = JavaScriptBridge.eval("/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent))", true)
 		return v == true
 	return false
+
+
+## Volante: teclado/controle + toque.
+func steer_axis() -> float:
+	return clampf(Input.get_axis("steer_right", "steer_left") + touch_steer, -1.0, 1.0)
+
+
+## Força da ação: a maior entre InputMap e botão de toque segurado.
+func strength(action: StringName) -> float:
+	return maxf(Input.get_action_strength(action), 1.0 if _touch_held.get(action, false) else 0.0)
+
+
+## "Acabou de apertar" (teclado/controle ou toque). O toque fica guardado até a física ler.
+func just_pressed(action: StringName) -> bool:
+	var pulse: bool = _touch_pulses.get(action, false)
+	_touch_pulses.erase(action)
+	return Input.is_action_just_pressed(action) or pulse
+
+
+func set_touch_held(action: StringName, held: bool) -> void:
+	_touch_held[action] = held
+	if held:
+		_touch_pulses[action] = true
+
+
+func clear_touch() -> void:
+	touch_steer = 0.0
+	_touch_held.clear()
+	_touch_pulses.clear()
 
 
 func force_device(d: int) -> void:
@@ -54,6 +98,7 @@ func _input(event: InputEvent) -> void:
 	var d := device
 	if event is InputEventScreenTouch or event is InputEventScreenDrag:
 		d = Device.TOUCH
+		_last_touch_ms = Time.get_ticks_msec()
 	elif event is InputEventJoypadButton:
 		d = Device.GAMEPAD
 	elif event is InputEventJoypadMotion:
@@ -62,8 +107,10 @@ func _input(event: InputEvent) -> void:
 	elif event is InputEventKey:
 		d = Device.KEYBOARD
 	elif event is InputEventMouseButton or event is InputEventMouseMotion:
-		# Ignora o "mouse de mentira" que o Godot gera a partir do toque.
-		if event.device != InputEvent.DEVICE_ID_EMULATION:
+		# Ignora o "mouse de mentira" gerado a partir do toque (pelo Godot ou pelo navegador,
+		# que dispara cliques de compatibilidade logo depois do toque).
+		var recent_touch := Time.get_ticks_msec() - _last_touch_ms < 1500
+		if event.device != InputEvent.DEVICE_ID_EMULATION and not recent_touch and not is_touch_platform():
 			if event is InputEventMouseButton or (event as InputEventMouseMotion).relative.length() > 4.0:
 				d = Device.KEYBOARD
 	if d != device:
