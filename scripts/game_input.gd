@@ -34,7 +34,8 @@ func _ready() -> void:
 	_add("drift", [KEY_SPACE, KEY_SHIFT], [JOY_BUTTON_RIGHT_SHOULDER, JOY_BUTTON_LEFT_SHOULDER], [])
 	_add("ability_damage", [KEY_Q, KEY_J], [JOY_BUTTON_X], [])
 	_add("ability_barrier", [KEY_E, KEY_K], [JOY_BUTTON_Y], [])
-	_add("respawn", [KEY_R], [JOY_BUTTON_BACK], [])
+	_add("ability_ultimate", [KEY_R, KEY_L], [JOY_BUTTON_RIGHT_STICK, JOY_BUTTON_LEFT_STICK, JOY_BUTTON_B], [])
+	_add("respawn", [KEY_T, KEY_BACKSPACE], [JOY_BUTTON_BACK], [])
 	_add("toggle_menu", [KEY_ESCAPE], [JOY_BUTTON_START], [])
 	_touch_platform = _detect_touch_platform()
 	if _touch_platform:

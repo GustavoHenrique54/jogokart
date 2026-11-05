@@ -89,6 +89,8 @@ var _callout_tween: Tween
 var _stats_lbl: Label
 var _pause_btn: Button
 var _abilities: AbilityHud
+var _blind_overlay: ColorRect
+var _mist_overlay: ColorRect
 
 
 func _ready() -> void:
@@ -748,8 +750,29 @@ func _refresh_pilot() -> void:
 		c.queue_free()
 	var keys := _ability_keys()
 	_pilot_rows.add_child(_power_row("PASSIVA", cdata["passive"], UIStyle.LEAF))
-	_pilot_rows.add_child(_power_row(keys[0], cdata["ability_damage"], UIStyle.ORANGE))
-	_pilot_rows.add_child(_power_row(keys[1], cdata["ability_barrier"], Color("b79bff")))
+	var col_d: Color
+	var col_b: Color
+	var col_u: Color
+	if Settings.character == CharacterData.BOITATA:
+		col_d = UIStyle.ORANGE
+		col_b = Color("ff6b35")
+		col_u = Color("ffd13b")
+	elif Settings.character == CharacterData.ET_VARGINHA:
+		col_d = Color("a855f7")
+		col_b = Color("06b6d4")
+		col_u = Color("38bdf8")
+	elif Settings.character == CharacterData.CURUPIRA:
+		col_d = Color("22c55e")
+		col_b = Color("10b981")
+		col_u = Color("f59e0b")
+	else:
+		col_d = Color("dc2626")
+		col_b = Color("991b1b")
+		col_u = Color("ef4444")
+	_pilot_rows.add_child(_power_row(keys[0], cdata["ability_damage"], col_d))
+	_pilot_rows.add_child(_power_row(keys[1], cdata["ability_barrier"], col_b))
+	if cdata.has("ability_ultimate"):
+		_pilot_rows.add_child(_power_row(keys[2], cdata["ability_ultimate"], col_u))
 
 	if is_instance_valid(_preview_kart):
 		_preview_kart.queue_free()
@@ -763,11 +786,11 @@ func _refresh_pilot() -> void:
 func _ability_keys() -> PackedStringArray:
 	match GameInput.device:
 		GameInput.Device.GAMEPAD:
-			return PackedStringArray(["X", "Y"])
+			return PackedStringArray(["X", "Y", "B"])
 		GameInput.Device.TOUCH:
-			return PackedStringArray(["ATAQUE", "ESCUDO"])
+			return PackedStringArray(["HAB 1", "HAB 2", "ULT"])
 		_:
-			return PackedStringArray(["Q", "E"])
+			return PackedStringArray(["Q", "E", "R"])
 
 
 func _power_row(key: String, p: Dictionary, color: Color) -> Control:
@@ -871,13 +894,13 @@ func _refresh_device_texts() -> void:
 	match GameInput.device:
 		GameInput.Device.GAMEPAD:
 			rows = [["A  /  RT", "empurrar o carrinho"], ["B  /  LT", "frear e dar ré"], ["ANALÓGICO", "virar com os pés"],
-				["RB", "pulinho"], ["X  /  Y", "ataque e escudo do piloto"], ["SELECT", "voltar para a pista"], ["START", "pausa"]]
+				["RB", "pulinho"], ["X  /  Y", "habilidades 1 e 2"], ["B / R3", "ultimate ancestral"], ["SELECT", "voltar para a pista"], ["START", "pausa"]]
 		GameInput.Device.TOUCH:
 			rows = [["ARRASTE", "na metade esquerda para virar"], ["EMPURRA", "botão verde (segure para ganhar embalo)"], ["FREIO", "botão vermelho"],
-				["PULO", "botão amarelo"], ["ATAQUE / ESCUDO", "poderes do piloto"], ["SETA", "botão azul volta para a pista"], ["II", "pausa (canto de cima)"]]
+				["PULO", "botão amarelo"], ["HAB / ULT", "poderes do piloto"], ["SETA", "botão azul volta para a pista"], ["II", "pausa (canto de cima)"]]
 		_:
 			rows = [["W  /  ↑", "empurrar o carrinho"], ["S  /  ↓", "frear e dar ré"], ["A D  /  ← →", "virar com os pés"],
-				["ESPAÇO", "pulinho"], ["Q  /  E", "ataque e escudo do piloto"], ["R", "voltar para a pista"], ["ESC", "pausa"]]
+				["ESPAÇO", "pulinho"], ["Q  /  E", "habilidades 1 e 2"], ["R", "ultimate ancestral"], ["T", "voltar para a pista"], ["ESC", "pausa"]]
 	for r in rows:
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 18)
@@ -1078,11 +1101,23 @@ func _build_hud() -> void:
 	_abilities.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	_abilities.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	_abilities.offset_left = 28
-	_abilities.offset_right = 28 + 250
+	_abilities.offset_right = 28 + 360
 	_abilities.offset_top = -180
 	_abilities.offset_bottom = -20
 	_abilities.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_hud.add_child(_abilities)
+
+	_blind_overlay = ColorRect.new()
+	_blind_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_blind_overlay.color = Color(1.0, 0.55, 0.1, 0.0)
+	_blind_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hud.add_child(_blind_overlay)
+
+	_mist_overlay = ColorRect.new()
+	_mist_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_mist_overlay.color = Color(0.12, 0.55, 0.25, 0.0)
+	_mist_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hud.add_child(_mist_overlay)
 
 	_callout = UIStyle.label("", 64, UIStyle.SKY)
 	_callout.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -1143,6 +1178,261 @@ func _layout_hud() -> void:
 		_speed_box.offset_top = -18
 		_speed_lbl.add_theme_font_size_override("font_size", 88)
 		_speed_unit.add_theme_font_size_override("font_size", 28)
+
+
+func trigger_sun_blind_flash(duration: float = 1.5) -> void:
+	if _blind_overlay == null:
+		return
+	_blind_overlay.color = Color(1.0, 0.6, 0.12, 0.88)
+	var tween := create_tween()
+	tween.tween_property(_blind_overlay, "color:a", 0.0, duration).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	if _callout:
+		_callout.text = "☀️ CLARÃO DA MATA!"
+		_callout.add_theme_color_override("font_color", Color(1.0, 0.75, 0.2))
+		_callout.modulate.a = 1.0
+		_callout.scale = Vector2(1.25, 1.25)
+		var t2 := create_tween()
+		t2.tween_property(_callout, "scale", Vector2.ONE, 0.3)
+		t2.tween_interval(1.2)
+		t2.tween_property(_callout, "modulate:a", 0.0, 0.5)
+
+
+func notify_wheel_overheat() -> void:
+	if _callout == null:
+		return
+	_callout.text = "🔥 RODAS SUPERAQUECIDAS!"
+	_callout.add_theme_color_override("font_color", Color(1.0, 0.35, 0.1))
+	_callout.modulate.a = 1.0
+	_callout.scale = Vector2(1.2, 1.2)
+	var t := create_tween()
+	t.tween_property(_callout, "scale", Vector2.ONE, 0.25)
+	t.tween_interval(1.0)
+	t.tween_property(_callout, "modulate:a", 0.0, 0.4)
+
+
+func notify_telekinetic_hit() -> void:
+	if _callout == null:
+		return
+	_callout.text = "⚡ CURTO-CIRCUITO TELECINÉTICO! Rodas travadas!"
+	_callout.add_theme_color_override("font_color", Color(0.75, 0.45, 1.0))
+	_callout.modulate.a = 1.0
+	_callout.scale = Vector2(1.25, 1.25)
+	var t := create_tween()
+	t.tween_property(_callout, "scale", Vector2.ONE, 0.22)
+	t.tween_interval(1.1)
+	t.tween_property(_callout, "modulate:a", 0.0, 0.4)
+
+
+func notify_antigrav_thruster() -> void:
+	if _callout == null:
+		return
+	_callout.text = "🚀 PROPULSOR ATIVADO! Atrito zero!"
+	_callout.add_theme_color_override("font_color", Color(0.25, 0.9, 1.0))
+	_callout.modulate.a = 1.0
+	_callout.scale = Vector2(1.15, 1.15)
+	var t := create_tween()
+	t.tween_property(_callout, "scale", Vector2.ONE, 0.2)
+	t.tween_interval(0.9)
+	t.tween_property(_callout, "modulate:a", 0.0, 0.35)
+
+
+func notify_antigrav_crash() -> void:
+	if _callout == null:
+		return
+	_callout.text = "💥 IMPACTO PROPULSOR! Arremessado para o alto!"
+	_callout.add_theme_color_override("font_color", Color(1.0, 0.25, 0.25))
+	_callout.modulate.a = 1.0
+	_callout.scale = Vector2(1.3, 1.3)
+	var t := create_tween()
+	t.tween_property(_callout, "scale", Vector2.ONE, 0.25)
+	t.tween_interval(1.2)
+	t.tween_property(_callout, "modulate:a", 0.0, 0.4)
+
+
+func notify_abducted() -> void:
+	if _callout == null:
+		return
+	_callout.text = "👽 ABDUZIDO PELA NAVE-MÃE! Sem controle!"
+	_callout.add_theme_color_override("font_color", Color(0.35, 0.85, 1.0))
+	_callout.modulate.a = 1.0
+	_callout.scale = Vector2(1.3, 1.3)
+	var t := create_tween()
+	t.tween_property(_callout, "scale", Vector2.ONE, 0.25)
+	t.tween_interval(1.2)
+	t.tween_property(_callout, "modulate:a", 0.0, 0.4)
+
+
+func notify_abduction_cast() -> void:
+	if _callout == null:
+		return
+	_callout.text = "🛸 FEIXE DE ABDUÇÃO! Túnel de vácuo ativo!"
+	_callout.add_theme_color_override("font_color", Color(0.35, 0.95, 1.0))
+	_callout.modulate.a = 1.0
+	_callout.scale = Vector2(1.2, 1.2)
+	var t := create_tween()
+	t.tween_property(_callout, "scale", Vector2.ONE, 0.2)
+	t.tween_interval(1.0)
+	t.tween_property(_callout, "modulate:a", 0.0, 0.35)
+
+
+func trigger_illusory_mist(duration: float = 2.5) -> void:
+	if _mist_overlay:
+		_mist_overlay.color = Color(0.12, 0.55, 0.25, 0.45)
+		var tween := create_tween()
+		tween.tween_property(_mist_overlay, "color:a", 0.0, duration).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	if _callout:
+		_callout.text = "🌀 COMANDOS INVERTIDOS! (Assobio Ilusório)"
+		_callout.add_theme_color_override("font_color", Color(0.35, 1.0, 0.45))
+		_callout.modulate.a = 1.0
+		_callout.scale = Vector2(1.3, 1.3)
+		var t := create_tween()
+		t.tween_property(_callout, "scale", Vector2.ONE, 0.25)
+		t.tween_interval(1.8)
+		t.tween_property(_callout, "modulate:a", 0.0, 0.4)
+
+
+func notify_trap_log_hit() -> void:
+	if _callout == null:
+		return
+	_callout.text = "🪵 IMPACTO DA ARAPUCA! Rodas desalinhadas!"
+	_callout.add_theme_color_override("font_color", Color(0.95, 0.55, 0.2))
+	_callout.modulate.a = 1.0
+	_callout.scale = Vector2(1.25, 1.25)
+	var t := create_tween()
+	t.tween_property(_callout, "scale", Vector2.ONE, 0.25)
+	t.tween_interval(1.1)
+	t.tween_property(_callout, "modulate:a", 0.0, 0.4)
+
+
+func notify_curupira_trap_drop() -> void:
+	if _callout == null:
+		return
+	_callout.text = "🪵 TORA DE ARAPUCA ARMADA!"
+	_callout.add_theme_color_override("font_color", Color(0.85, 0.65, 0.35))
+	_callout.modulate.a = 1.0
+	_callout.scale = Vector2(1.15, 1.15)
+	var t := create_tween()
+	t.tween_property(_callout, "scale", Vector2.ONE, 0.2)
+	t.tween_interval(0.9)
+	t.tween_property(_callout, "modulate:a", 0.0, 0.35)
+
+
+func notify_curupira_ginga() -> void:
+	if _callout == null:
+		return
+	_callout.text = "🍃 GINGA DA MATA! Curvas extremas!"
+	_callout.add_theme_color_override("font_color", Color(0.2, 0.95, 0.45))
+	_callout.modulate.a = 1.0
+	_callout.scale = Vector2(1.15, 1.15)
+	var t := create_tween()
+	t.tween_property(_callout, "scale", Vector2.ONE, 0.2)
+	t.tween_interval(0.9)
+	t.tween_property(_callout, "modulate:a", 0.0, 0.35)
+
+
+func notify_curupira_whistle_cast() -> void:
+	if _callout == null:
+		return
+	_callout.text = "🎵 ASSOBIO ILUSÓRIO! Pânico na trilha!"
+	_callout.add_theme_color_override("font_color", Color(0.4, 1.0, 0.5))
+	_callout.modulate.a = 1.0
+	_callout.scale = Vector2(1.2, 1.2)
+	var t := create_tween()
+	t.tween_property(_callout, "scale", Vector2.ONE, 0.2)
+	t.tween_interval(1.0)
+	t.tween_property(_callout, "modulate:a", 0.0, 0.35)
+
+
+func notify_chupa_bite_success() -> void:
+	if _callout == null:
+		return
+	_callout.text = "🩸 MORDIDA NO EIXO! -40% velocidade no rival!"
+	_callout.add_theme_color_override("font_color", Color(1.0, 0.15, 0.2))
+	_callout.modulate.a = 1.0
+	_callout.scale = Vector2(1.25, 1.25)
+	var t := create_tween()
+	t.tween_property(_callout, "scale", Vector2.ONE, 0.2)
+	t.tween_interval(1.1)
+	t.tween_property(_callout, "modulate:a", 0.0, 0.35)
+
+
+func notify_chupa_bite_miss() -> void:
+	if _callout == null:
+		return
+	_callout.text = "💨 GOLPE NO VÁZIO! Recuo de -8% velocidade!"
+	_callout.add_theme_color_override("font_color", Color(0.85, 0.45, 0.45))
+	_callout.modulate.a = 1.0
+	_callout.scale = Vector2(1.1, 1.1)
+	var t := create_tween()
+	t.tween_property(_callout, "scale", Vector2.ONE, 0.2)
+	t.tween_interval(0.9)
+	t.tween_property(_callout, "modulate:a", 0.0, 0.35)
+
+
+func notify_axle_bite_received() -> void:
+	if _callout == null:
+		return
+	_callout.text = "🦷 EIXO MORDIDO! Rodas superaquecidas (-40%)!"
+	_callout.add_theme_color_override("font_color", Color(1.0, 0.2, 0.2))
+	_callout.modulate.a = 1.0
+	_callout.scale = Vector2(1.3, 1.3)
+	var t := create_tween()
+	t.tween_property(_callout, "scale", Vector2.ONE, 0.25)
+	t.tween_interval(1.2)
+	t.tween_property(_callout, "modulate:a", 0.0, 0.4)
+
+
+func notify_chupa_bote() -> void:
+	if _callout == null:
+		return
+	_callout.text = "🦇 BOTE NOTURNO! Salto rasante sem atrito!"
+	_callout.add_theme_color_override("font_color", Color(0.9, 0.2, 0.25))
+	_callout.modulate.a = 1.0
+	_callout.scale = Vector2(1.15, 1.15)
+	var t := create_tween()
+	t.tween_property(_callout, "scale", Vector2.ONE, 0.2)
+	t.tween_interval(0.9)
+	t.tween_property(_callout, "modulate:a", 0.0, 0.35)
+
+
+func notify_chupa_land_boost() -> void:
+	if _callout == null:
+		return
+	_callout.text = "⚡ ATERRISSAGEM ALINHADA! Boost de tração!"
+	_callout.add_theme_color_override("font_color", Color(1.0, 0.4, 0.4))
+	_callout.modulate.a = 1.0
+	_callout.scale = Vector2(1.15, 1.15)
+	var t := create_tween()
+	t.tween_property(_callout, "scale", Vector2.ONE, 0.18)
+	t.tween_interval(0.85)
+	t.tween_property(_callout, "modulate:a", 0.0, 0.35)
+
+
+func notify_chupa_tether_started() -> void:
+	if _callout == null:
+		return
+	_callout.text = "☠️ DRENAGEM ESPINHAL! Sugando embalo do líder!"
+	_callout.add_theme_color_override("font_color", Color(1.0, 0.1, 0.15))
+	_callout.modulate.a = 1.0
+	_callout.scale = Vector2(1.25, 1.25)
+	var t := create_tween()
+	t.tween_property(_callout, "scale", Vector2.ONE, 0.25)
+	t.tween_interval(1.3)
+	t.tween_property(_callout, "modulate:a", 0.0, 0.35)
+
+
+func notify_chupa_tether_broken(reason: String) -> void:
+	if _callout == null:
+		return
+	_callout.text = "❌ DRENAGEM FINALIZADA (%s)" % reason.to_upper()
+	_callout.add_theme_color_override("font_color", Color(0.7, 0.5, 0.5))
+	_callout.modulate.a = 1.0
+	_callout.scale = Vector2(1.05, 1.05)
+	var t := create_tween()
+	t.tween_property(_callout, "scale", Vector2.ONE, 0.18)
+	t.tween_interval(0.8)
+	t.tween_property(_callout, "modulate:a", 0.0, 0.3)
+
 
 
 func _process(delta: float) -> void:
@@ -1394,14 +1684,27 @@ class AbilityHud:
 		var name_txt := String(cdata["name"]).to_upper()
 		var base_y := size.y - 28.0
 		_text(font, name_txt, Vector2(4, 24), 26, cdata["theme_color"], false)
-		var keys := ["X", "Y"] if GameInput.device == GameInput.Device.GAMEPAD else ["Q", "E"]
+		var keys := ["X", "Y", "B"] if GameInput.device == GameInput.Device.GAMEPAD else ["Q", "E", "R"]
+		var is_boitata: bool = kart.character_id == CharacterData.BOITATA
+		var is_et: bool = kart.character_id == CharacterData.ET_VARGINHA
+		var is_curupira: bool = kart.character_id == CharacterData.CURUPIRA
+		var label_1: String = "RASTRO" if is_boitata else ("FEIXE" if is_et else ("ARAPUCA" if is_curupira else "MORDIDA"))
+		var label_2: String = "BOTE" if is_boitata else ("PROPULSÃO" if is_et else ("GINGA" if is_curupira else "BOTE"))
+		var label_3: String = "CLARÃO" if is_boitata else ("ABDUÇÃO" if is_et else ("ASSOBIO" if is_curupira else "DRENAGEM"))
+		var is_1_active: bool = kart.is_flame_trail_active()
+		var is_2_active: bool = kart.is_serpent_strike_active() if is_boitata else (kart.is_antigrav_active() if is_et else (kart.is_curupira_e_active() if is_curupira else kart.is_chupacabra_e_active()))
+		var is_3_active: bool = false if is_boitata else (kart.is_abduction_active() if is_et else (kart.is_curupira_r_active() if is_curupira else kart.is_chupacabra_r_active()))
+		var col_1: Color = UIStyle.ORANGE if is_boitata else (Color("a855f7") if is_et else (Color("22c55e") if is_curupira else Color("dc2626")))
+		var col_2: Color = Color("ff6b35") if is_boitata else (Color("06b6d4") if is_et else (Color("10b981") if is_curupira else Color("b91c1c")))
+		var col_3: Color = Color("ffd13b") if is_boitata else (Color("38bdf8") if is_et else (Color("f59e0b") if is_curupira else Color("ef4444")))
 		var specs := [
-			[kart.damage_cooldown, kart.damage_max_cooldown, UIStyle.ORANGE, "ATAQUE", false],
-			[kart.barrier_cooldown, kart.barrier_max_cooldown, Color("9a6cff"), "ESCUDO", kart.is_barrier_active()],
+			[kart.damage_cooldown, kart.damage_max_cooldown, col_1, label_1, is_1_active],
+			[kart.barrier_cooldown, kart.barrier_max_cooldown, col_2, label_2, is_2_active],
+			[kart.ultimate_cooldown, kart.ultimate_max_cooldown, col_3, label_3, is_3_active],
 		]
-		for i in 2:
-			var c := Vector2(48 + i * 108, base_y - 44)
-			var r := 38.0
+		for i in 3:
+			var c := Vector2(44 + i * 98, base_y - 44)
+			var r := 35.0
 			var left: float = specs[i][0]
 			var total: float = specs[i][1]
 			var col: Color = specs[i][2]
@@ -1411,7 +1714,7 @@ class AbilityHud:
 			draw_circle(c, r - 5, col if left <= 0.0 else col.darkened(0.45))
 			draw_circle(c + Vector2(0, -r * 0.38), r * 0.42, Color(1, 1, 1, 0.16))
 			if active:
-				draw_arc(c, r + 4, 0, TAU, 40, UIStyle.SKY, 6.0, true)
+				draw_arc(c, r + 4, 0, TAU, 40, UIStyle.SUN, 6.0, true)
 			if left > 0.0:
 				var frac := clampf(left / maxf(total, 0.01), 0.0, 1.0)
 				var pts := PackedVector2Array([c])
@@ -1419,9 +1722,9 @@ class AbilityHud:
 					var ang := -PI * 0.5 + TAU * frac * float(k) / 24.0
 					pts.append(c + Vector2(cos(ang), sin(ang)) * (r - 5))
 				draw_colored_polygon(pts, Color(UIStyle.INK, 0.55))
-				_text(font, str(ceili(left)), c + Vector2(0, 10), 30, UIStyle.CREAM, true)
+				_text(font, str(ceili(left)), c + Vector2(0, 10), 28, UIStyle.CREAM, true)
 			else:
-				_text(font, specs[i][3], c + Vector2(0, 7), 15, UIStyle.CREAM, true)
+				_text(font, specs[i][3], c + Vector2(0, 7), 13, UIStyle.CREAM, true)
 			# tecla embaixo do medalhão
 			var kc := Rect2(c.x - 18, c.y + r + 2, 36, 28)
 			draw_colored_polygon(CartoonBox.rounded_points(kc, 7.0), UIStyle.INK)

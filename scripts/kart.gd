@@ -15,6 +15,10 @@ const BALL_RADIUS := 0.5
 const CharacterDataScript := preload("res://scripts/character_data.gd")
 const FIRE_ORB_SCENE := preload("res://scenes/fire_orb.tscn")
 const PLASMA_BEAM_SCENE := preload("res://scenes/plasma_beam.tscn")
+const FLAME_TRAIL_PATCH_SCRIPT := preload("res://scripts/flame_trail_patch.gd")
+const ABDUCTION_BEAM_SCRIPT := preload("res://scripts/abduction_beam.gd")
+const TRAP_LOG_SCRIPT := preload("res://scripts/trap_log.gd")
+const SPINAL_TETHER_SCRIPT := preload("res://scripts/spinal_tether.gd")
 
 const KART_COLORS := [
 	Color(0.92, 0.18, 0.2), Color(0.2, 0.45, 0.95), Color(0.2, 0.8, 0.35), Color(0.98, 0.8, 0.15),
@@ -76,14 +80,40 @@ var spawn_heading := 0.0
 
 # Habilidades e Poderes
 var damage_cooldown := 0.0
-var damage_max_cooldown := 5.0
+var damage_max_cooldown := 13.0
 var barrier_cooldown := 0.0
-var barrier_max_cooldown := 8.0
+var barrier_max_cooldown := 12.0
 var barrier_time_left := 0.0
 var barrier_active_duration := 4.0
+var ultimate_cooldown := 0.0
+var ultimate_max_cooldown := 25.0
+
+var flame_trail_time_left := 0.0
+var serpent_strike_time_left := 0.0
+var antigrav_time_left := 0.0
+var abduction_vacuum_time_left := 0.0
+var abducted_time_left := 0.0
+var curupira_ginga_time_left := 0.0
+var curupira_whistle_time_left := 0.0
+var curupira_boost_time_left := 0.0
+var chupa_bote_time_left := 0.0
+var chupa_drain_time_left := 0.0
+var chupa_in_slipstream := false
+var chupa_land_boost_time_left := 0.0
+var _chupa_was_in_bote := false
+var _chupa_tether_target: Kart = null
+var _chupa_tether_instance: Node3D = null
+var _tether_los_blocked_timer := 0.0
+var _control_inversion_timer := 0.0
+var _misalignment_timer := 0.0
+var _flame_drop_timer := 0.0
+var _overheat_skid_timer := 0.0
+var _line_loss_timer := 0.0
+var _hover_offset := 0.0
 
 var _fire_shield_node: Node3D
 var _psi_shield_node: Node3D
+var _antigrav_thruster_node: Node3D
 var _shield_mat: StandardMaterial3D
 
 # Estado replicado.
@@ -225,10 +255,77 @@ func _physics_process(delta: float) -> void:
 		damage_cooldown = maxf(damage_cooldown - delta, 0.0)
 	if barrier_cooldown > 0.0:
 		barrier_cooldown = maxf(barrier_cooldown - delta, 0.0)
+	if ultimate_cooldown > 0.0:
+		ultimate_cooldown = maxf(ultimate_cooldown - delta, 0.0)
+
 	if barrier_time_left > 0.0:
 		barrier_time_left = maxf(barrier_time_left - delta, 0.0)
 		if barrier_time_left <= 0.0:
 			_set_shield_active(false)
+
+	if flame_trail_time_left > 0.0:
+		flame_trail_time_left = maxf(flame_trail_time_left - delta, 0.0)
+
+	if serpent_strike_time_left > 0.0:
+		serpent_strike_time_left = maxf(serpent_strike_time_left - delta, 0.0)
+
+	if antigrav_time_left > 0.0:
+		antigrav_time_left = maxf(antigrav_time_left - delta, 0.0)
+		if antigrav_time_left <= 0.0:
+			_set_antigrav_thruster_active(false)
+
+	if abduction_vacuum_time_left > 0.0:
+		abduction_vacuum_time_left = maxf(abduction_vacuum_time_left - delta, 0.0)
+
+	if abducted_time_left > 0.0:
+		var was_abducted := abducted_time_left > 0.0
+		abducted_time_left = maxf(abducted_time_left - delta, 0.0)
+		if was_abducted and abducted_time_left <= 0.0:
+			# Cai seco de volta no asfalto com forte baque
+			_on_bump(14.0)
+			_squash_vel -= 6.0
+			grounded = true
+			hop_lock = 0.0
+
+	if _overheat_skid_timer > 0.0:
+		_overheat_skid_timer = maxf(_overheat_skid_timer - delta, 0.0)
+
+	if _line_loss_timer > 0.0:
+		_line_loss_timer = maxf(_line_loss_timer - delta, 0.0)
+
+	if curupira_ginga_time_left > 0.0:
+		curupira_ginga_time_left = maxf(curupira_ginga_time_left - delta, 0.0)
+
+	if curupira_whistle_time_left > 0.0:
+		curupira_whistle_time_left = maxf(curupira_whistle_time_left - delta, 0.0)
+
+	if curupira_boost_time_left > 0.0:
+		curupira_boost_time_left = maxf(curupira_boost_time_left - delta, 0.0)
+
+	if chupa_bote_time_left > 0.0:
+		chupa_bote_time_left = maxf(chupa_bote_time_left - delta, 0.0)
+		if chupa_bote_time_left <= 0.0 and _chupa_was_in_bote:
+			_chupa_was_in_bote = false
+			_on_chupa_bote_land()
+
+	if chupa_land_boost_time_left > 0.0:
+		chupa_land_boost_time_left = maxf(chupa_land_boost_time_left - delta, 0.0)
+
+	if chupa_drain_time_left > 0.0:
+		chupa_drain_time_left = maxf(chupa_drain_time_left - delta, 0.0)
+		if is_local() and _chupa_tether_target != null:
+			_process_chupa_tether_drain(delta)
+
+	if _control_inversion_timer > 0.0:
+		_control_inversion_timer = maxf(_control_inversion_timer - delta, 0.0)
+
+	if _misalignment_timer > 0.0:
+		_misalignment_timer = maxf(_misalignment_timer - delta, 0.0)
+
+	if character_id == CharacterDataScript.CURUPIRA:
+		_update_curupira_passive(delta)
+	elif character_id == CharacterDataScript.CHUPACABRA:
+		_update_chupacabra_passive(delta)
 
 	prev_heading = heading
 	if is_local():
@@ -260,21 +357,83 @@ func _local_physics(delta: float) -> void:
 		# Ativação das habilidades ativas
 		if GameInput.just_pressed(&"ability_damage") and damage_cooldown <= 0.0:
 			damage_cooldown = damage_max_cooldown
-			var up_vec := ground_normal if grounded else Vector3.UP
-			var fwd_f := Vector3(-sin(heading), 0.0, -cos(heading))
-			var fwd_dir := (fwd_f - up_vec * fwd_f.dot(up_vec)).normalized()
-			var spawn_pt := ball.global_position + fwd_dir * 1.8 + Vector3.UP * 0.35
-			_rpc_cast_damage.rpc(spawn_pt, fwd_dir)
+			if character_id == CharacterDataScript.BOITATA:
+				flame_trail_time_left = 2.5
+				_flame_drop_timer = 0.0
+				_rpc_activate_flame_trail.rpc()
+			elif character_id == CharacterDataScript.CURUPIRA:
+				_rpc_cast_curupira_q.rpc()
+			elif character_id == CharacterDataScript.CHUPACABRA:
+				_cast_chupacabra_q()
+			else:
+				var up_vec := ground_normal if grounded else Vector3.UP
+				var fwd_f := Vector3(-sin(heading), 0.0, -cos(heading))
+				var fwd_dir := (fwd_f - up_vec * fwd_f.dot(up_vec)).normalized()
+				var spawn_pt := ball.global_position + fwd_dir * 1.5 + Vector3.UP * 0.72
+				_rpc_cast_damage.rpc(spawn_pt, fwd_dir)
 
 		if GameInput.just_pressed(&"ability_barrier") and barrier_cooldown <= 0.0:
 			barrier_cooldown = barrier_max_cooldown
-			barrier_time_left = barrier_active_duration
-			_rpc_activate_barrier.rpc()
+			if character_id == CharacterDataScript.BOITATA:
+				serpent_strike_time_left = 1.5
+				_rpc_activate_serpent_strike.rpc()
+			elif character_id == CharacterDataScript.CURUPIRA:
+				curupira_ginga_time_left = 2.5
+				_rpc_activate_curupira_e.rpc()
+			elif character_id == CharacterDataScript.CHUPACABRA:
+				_cast_chupacabra_e()
+			else:
+				antigrav_time_left = 3.0
+				_rpc_activate_antigrav.rpc()
+
+		if GameInput.just_pressed(&"ability_ultimate") and ultimate_cooldown <= 0.0:
+			ultimate_cooldown = ultimate_max_cooldown
+			_rpc_cast_ultimate.rpc(ball.global_position, heading)
+
 	if ball.global_position.y < -2500.0:
 		respawn(_safe_pos, _safe_heading)
 		return
 
-	steer = move_toward(steer, steer_in, steer_response * delta)
+	# Levitação dos Rivais pela Abdução Espacial da nave-mãe
+	if abducted_time_left > 0.0:
+		grounded = false
+		hop_lock = 0.15
+		fwd_speed = move_toward(fwd_speed, 0.0, 22.0 * delta)
+		steer = 0.0
+		steer_in = 0.0
+		var current_y := ball.global_position.y
+		var hover_target_y := _safe_pos.y + 1.1 if absf(current_y - _safe_pos.y) < 8.0 else (current_y + 0.05)
+		ball.linear_velocity.y = move_toward(ball.linear_velocity.y, (hover_target_y - current_y) * 4.5, 14.0 * delta)
+		ball.linear_velocity.x = move_toward(ball.linear_velocity.x, 0.0, 14.0 * delta)
+		ball.linear_velocity.z = move_toward(ball.linear_velocity.z, 0.0, 14.0 * delta)
+		_last_fwd_speed = fwd_speed
+		heading = wrapf(heading + sin(Time.get_ticks_msec() * 0.007) * 0.3 * delta, -PI, PI)
+		return
+
+	# Inversão de Comandos (Confusão Mental do Assobio Ilusório do Curupira)
+	if _control_inversion_timer > 0.0:
+		steer_in = -steer_in
+
+	# Desalinhamento das Rodas (Impacto da Tora de Arapuca)
+	if _misalignment_timer > 0.0:
+		steer_in += sin(Time.get_ticks_msec() * 0.038) * 0.48
+
+	# Efeitos ativos sobre o controle direcional
+	if serpent_strike_time_left > 0.0:
+		# Durante o Bote da Serpente, a sensibilidade da direção cai drasticamente
+		steer_in *= 0.14
+
+	var active_steer_response := steer_response
+	if is_curupira_e_active():
+		active_steer_response *= 1.6
+
+	if _line_loss_timer > 0.0:
+		# Perda de Linha: sensibilidade da direção treme e fica mais pesada temporariamente
+		steer_in += sin(Time.get_ticks_msec() * 0.03) * 0.38
+		steer = move_toward(steer, steer_in, (active_steer_response * 0.42) * delta)
+	else:
+		steer = move_toward(steer, steer_in, active_steer_response * delta)
+
 	throttle = accel_in - brake_in
 
 	# --- Detecção do chão e orientação no relevo
@@ -342,7 +501,8 @@ func _local_physics(delta: float) -> void:
 		# Sem acelerar, o carrinho não ganha velocidade sozinho, nem descendo.
 		if slope_grade > 0.0:
 			if throttle > 0.05:
-				fwd_speed += slope_grade * downhill_gravity_boost * 1.25 * throttle * delta
+				var slip_mult := 1.35 if (character_id == CharacterDataScript.CHUPACABRA and chupa_in_slipstream) else 1.0
+				fwd_speed += slope_grade * downhill_gravity_boost * 1.25 * throttle * delta * slip_mult
 		elif slope_grade < 0.0:
 			fwd_speed += slope_grade * uphill_gravity_drag * delta
 
@@ -367,8 +527,80 @@ func _local_physics(delta: float) -> void:
 				fwd_speed = move_toward(fwd_speed, current_top, overspeed_bleed * delta)
 			fwd_speed = move_toward(fwd_speed, 0.0, coast_decel * delta)
 
-		fwd_speed = clampf(fwd_speed, -reverse_speed, max_downhill_speed)
-		lat *= exp(-grip * delta)
+		# Habilidade 2 (Mobilidade / Física): Propulsor Antigravitacional do ET
+		if is_antigrav_active():
+			# Atrito zero: aceleração contínua sem penalidade de superaquecimento dos rolamentos
+			fwd_speed = minf(fwd_speed + 15.0 * delta, max_downhill_speed + 8.0)
+			_overheat_skid_timer = 0.0
+
+		# Ultimate [R] (Túnel de Vácuo Alienígena): bônus violento de aceleração contínua
+		if abduction_vacuum_time_left > 0.0:
+			fwd_speed = minf(fwd_speed + 34.0 * delta, max_downhill_speed + 16.0)
+
+		# Habilidade 2 (Mobilidade / Curvas): Ginga da Mata do Curupira
+		if is_curupira_e_active():
+			_process_ginga_collision(delta)
+
+		# Auto-Buff do Curupira durante o Assobio Ilusório (+30% aceleração contínua na descida)
+		if curupira_boost_time_left > 0.0:
+			fwd_speed = minf(fwd_speed + 22.0 * delta, max_downhill_speed + 10.0)
+
+		# Passiva: Sede de Embalo do Chupa-Cabra (+35% de ganho de embalo no cone de vácuo ampliado)
+		if character_id == CharacterDataScript.CHUPACABRA and chupa_in_slipstream:
+			fwd_speed = minf(fwd_speed + 16.0 * delta, max_downhill_speed + 6.0)
+
+		# Habilidade 2 (Mobilidade): Bote Noturno do Chupa-Cabra (Salto rasante sem atrito)
+		if is_chupacabra_e_active():
+			fwd_speed = minf(fwd_speed + 18.0 * delta, max_downhill_speed + 12.0)
+
+		# Boost de aterrissagem alinhada do Bote Noturno
+		if chupa_land_boost_time_left > 0.0:
+			fwd_speed = minf(fwd_speed + 10.0 * delta, max_downhill_speed + 6.0)
+
+		# Habilidade 2 (Velocidade): O Bote da Serpente projeta com alta aceleração em linha reta
+		if serpent_strike_time_left > 0.0:
+			fwd_speed = minf(fwd_speed + 38.0 * delta, max_downhill_speed + 12.0)
+			_process_serpent_strike_collision(delta)
+
+		# Habilidade 1 (Dano / Controle): Rastro Flamejante espalha labaredas pelo asfalto
+		if flame_trail_time_left > 0.0:
+			_flame_drop_timer -= delta
+			if _flame_drop_timer <= 0.0:
+				_flame_drop_timer = 0.11
+				var drop_pos: Vector3 = ball.global_position - fwd * 0.7 + up * 0.05
+				_rpc_spawn_flame_trail_patch.rpc(drop_pos, peer_id)
+
+		var extra_top := 0.0
+		if serpent_strike_time_left > 0.0:
+			extra_top = 12.0
+		elif abduction_vacuum_time_left > 0.0:
+			extra_top = 16.0
+		elif curupira_boost_time_left > 0.0:
+			extra_top = 10.0
+		elif is_antigrav_active():
+			extra_top = 8.0
+		elif is_chupacabra_e_active():
+			extra_top = 12.0
+		elif chupa_drain_time_left > 0.0:
+			extra_top = 14.0
+		elif chupa_land_boost_time_left > 0.0:
+			extra_top = 6.0
+		elif character_id == CharacterDataScript.CHUPACABRA and chupa_in_slipstream:
+			extra_top = 6.0
+
+		fwd_speed = clampf(fwd_speed, -reverse_speed, max_downhill_speed + extra_top)
+
+		# Deslize inercial sem atrito durante Propulsor Antigravitacional ou Bote Noturno
+		var current_grip: float
+		if is_antigrav_active() or is_chupacabra_e_active():
+			current_grip = 0.85
+		elif _overheat_skid_timer > 0.0:
+			current_grip = 7.0
+		else:
+			current_grip = grip
+		if chupa_land_boost_time_left > 0.0:
+			current_grip *= 1.35
+		lat *= exp(-current_grip * delta)
 		ball.linear_velocity = fwd * fwd_speed + right * lat + up * minf(vn, 2.5)
 
 	long_accel = lerpf(long_accel, (fwd_speed - _last_fwd_speed) / maxf(delta, 0.0001), 1.0 - exp(-12.0 * delta))
@@ -381,6 +613,8 @@ func _local_physics(delta: float) -> void:
 	# --- Direção (pelos pés no eixo dianteiro do carrinho de rolimã)
 	var speed_ratio := clampf(absf(fwd_speed) / 28.0, 0.0, 1.0)
 	var power := lerpf(turn_speed, turn_speed_high, speed_ratio) * smoothstep(0.0, 0.12, speed_ratio)
+	if is_curupira_e_active():
+		power *= 1.85 # Ginga da Mata: manobra angular de curva fechada rente à guia interna!
 	var turn := steer * power * (1.0 if fwd_speed >= -0.1 else -1.0)
 	if not grounded:
 		turn *= air_turn_factor
@@ -502,6 +736,26 @@ func _on_landed(t_air: float) -> void:
 
 
 func _on_bump(amount: float) -> void:
+	if is_serpent_strike_active() or is_curupira_e_active() or is_chupacabra_e_active():
+		return
+	if is_antigrav_active() and amount > 5.0:
+		# Se bater de frente em um obstáculo sólido enquanto levita, o impacto é maior e ele é arremessado para o alto!
+		ball.linear_velocity.y = maxf(ball.linear_velocity.y, 10.5)
+		ball.linear_velocity.x *= 0.28
+		ball.linear_velocity.z *= 0.28
+		fwd_speed *= 0.28
+		hop_lock = 0.6
+		grounded = false
+		_squash_vel -= 7.5
+		_roll_vel += randf_range(-6.0, 6.0)
+		_pitch_vel += 8.0
+		if camera:
+			camera.add_trauma(0.65)
+		if is_local():
+			var ui = get_tree().root.find_child("UI", true, false)
+			if ui and ui.has_method("notify_antigrav_crash"):
+				ui.notify_antigrav_crash()
+		return
 	if is_barrier_active():
 		return
 	_squash_vel -= clampf(amount * 0.3, 0.5, 4.0)
@@ -562,6 +816,15 @@ func _update_visual(delta: float) -> void:
 	var s := clampf(_squash, 0.65, 1.45)
 	var side := 1.0 / sqrt(s)
 	squash.scale = Vector3(side, s, side)
+
+	# Efeito visual de levitação (Propulsor Antigravitacional ou Abdução Espacial)
+	if is_antigrav_active():
+		_hover_offset = move_toward(_hover_offset, 0.22 + sin(Time.get_ticks_msec() * 0.014) * 0.035, 3.0 * delta)
+	elif is_abducted():
+		_hover_offset = move_toward(_hover_offset, 0.95 + sin(Time.get_ticks_msec() * 0.008) * 0.08, 2.5 * delta)
+	else:
+		_hover_offset = move_toward(_hover_offset, 0.0, 4.0 * delta)
+	squash.position.y = _hover_offset
 
 	# Rolamentos de aço girando rápido + caibro dianteiro esterçando com os pés
 	_wheel_spin = wrapf(_wheel_spin - fwd_speed / 0.15 * delta, -TAU, TAU)
@@ -672,9 +935,45 @@ func is_barrier_active() -> bool:
 	return barrier_time_left > 0.0
 
 
+func is_flame_trail_active() -> bool:
+	return flame_trail_time_left > 0.0
+
+
+func is_serpent_strike_active() -> bool:
+	return serpent_strike_time_left > 0.0
+
+
+func is_antigrav_active() -> bool:
+	return antigrav_time_left > 0.0
+
+
+func is_abduction_active() -> bool:
+	return abduction_vacuum_time_left > 0.0
+
+
+func is_abducted() -> bool:
+	return abducted_time_left > 0.0
+
+
+func is_curupira_e_active() -> bool:
+	return curupira_ginga_time_left > 0.0
+
+
+func is_curupira_r_active() -> bool:
+	return curupira_whistle_time_left > 0.0
+
+
+func is_chupacabra_e_active() -> bool:
+	return chupa_bote_time_left > 0.0
+
+
+func is_chupacabra_r_active() -> bool:
+	return chupa_drain_time_left > 0.0
+
+
 func apply_damage_effect(type: String, from_pos: Vector3, force: float) -> void:
-	if is_barrier_active():
-		# Dano completamente repelido/absorvido pela barreira
+	if is_barrier_active() or is_serpent_strike_active() or is_antigrav_active():
+		# Dano completamente repelido/absorvido durante barreira ou bote da serpente
 		_squash_vel += 2.0
 		if camera:
 			camera.add_trauma(0.1)
@@ -688,6 +987,152 @@ func apply_damage_effect(type: String, from_pos: Vector3, force: float) -> void:
 	_roll_vel += randf_range(-3.5, 3.5)
 	if camera:
 		camera.add_trauma(0.55)
+
+
+func apply_flame_trail_hit(_from_pos: Vector3) -> void:
+	if is_barrier_active() or is_serpent_strike_active() or is_antigrav_active() or is_chupacabra_e_active():
+		return
+	fwd_speed *= 0.65 # Perde 35% da velocidade atual
+	_overheat_skid_timer = 1.3
+	_squash_vel -= 3.6
+	_roll_vel += randf_range(-2.8, 2.8)
+	if camera:
+		camera.add_trauma(0.35)
+	if is_local():
+		var ui = get_tree().root.find_child("UI", true, false)
+		if ui and ui.has_method("notify_wheel_overheat"):
+			ui.notify_wheel_overheat()
+
+
+func apply_blinding_flash() -> void:
+	_line_loss_timer = 3.0
+	if camera:
+		camera.add_trauma(0.45)
+	if is_local():
+		var ui = get_tree().root.find_child("UI", true, false)
+		if ui and ui.has_method("trigger_sun_blind_flash"):
+			ui.trigger_sun_blind_flash(1.5)
+
+
+func apply_telekinetic_hit(_from_pos: Vector3, shoot_dir: Vector3) -> void:
+	if is_barrier_active() or is_serpent_strike_active() or is_antigrav_active():
+		_squash_vel += 2.0
+		if camera:
+			camera.add_trauma(0.12)
+		return
+
+	# Curto-circuito de impacto que trava bruscamente as rodas de ferro:
+	# Perde 40% da velocidade de descida
+	fwd_speed *= 0.60
+
+	# Faz o carrinho quicar
+	ball.linear_velocity.y = maxf(ball.linear_velocity.y, 4.8)
+	_squash_vel -= 7.5
+
+	# Empurra levemente para o lado
+	var side_dir := Vector3(-shoot_dir.z, 0.0, shoot_dir.x).normalized()
+	var side_sign := 1.0 if randf() > 0.5 else -1.0
+	ball.linear_velocity += side_dir * (side_sign * 6.5)
+	_roll_vel += side_sign * 4.2
+	_overheat_skid_timer = 0.9 # Faíscas elétricas de curto-circuito
+
+	if camera:
+		camera.add_trauma(0.48)
+	if is_local():
+		var ui = get_tree().root.find_child("UI", true, false)
+		if ui and ui.has_method("notify_telekinetic_hit"):
+			ui.notify_telekinetic_hit()
+
+
+func apply_abduction_lift(duration: float) -> void:
+	if is_barrier_active() or is_serpent_strike_active() or is_antigrav_active():
+		return
+	abducted_time_left = maxf(abducted_time_left, duration)
+	_overheat_skid_timer = 0.0
+	if camera:
+		camera.add_trauma(0.42)
+	if is_local():
+		var ui = get_tree().root.find_child("UI", true, false)
+		if ui and ui.has_method("notify_abducted"):
+			ui.notify_abducted()
+
+
+func apply_abduction_edge_traction_loss() -> void:
+	if is_barrier_active() or is_serpent_strike_active() or is_antigrav_active() or is_abducted():
+		return
+	_overheat_skid_timer = maxf(_overheat_skid_timer, 0.9)
+
+
+func apply_trap_log_hit(from_pos: Vector3) -> void:
+	if is_barrier_active() or is_serpent_strike_active() or is_chupacabra_e_active():
+		return
+	# O piloto que colidir com a tora sofre impacto violento:
+	# Perde 45% da velocidade atual
+	fwd_speed *= 0.55
+	# É jogado para o lado da pista e sofre tranco vertical
+	var to_kart: Vector3 = (ball.global_position - from_pos).normalized()
+	var side_push: Vector3 = to_kart.cross(Vector3.UP).normalized()
+	var side_sign := 1.0 if randf() > 0.5 else -1.0
+	ball.linear_velocity += side_push * (side_sign * 8.5) + Vector3.UP * 3.8
+	_squash_vel -= 8.0
+	_roll_vel += side_sign * 5.0
+	# Alinhamento das rodas desestabilizado por 1.5s
+	_misalignment_timer = 1.5
+	if camera:
+		camera.add_trauma(0.55)
+	if is_local():
+		var ui = get_tree().root.find_child("UI", true, false)
+		if ui and ui.has_method("notify_trap_log_hit"):
+			ui.notify_trap_log_hit()
+
+
+func apply_illusory_whistle() -> void:
+	if is_barrier_active() or is_serpent_strike_active():
+		return
+	# Inversão de Comandos (esquerda/direita) por 2.5s
+	_control_inversion_timer = 2.5
+	if camera:
+		camera.add_trauma(0.4)
+	if is_local():
+		var ui = get_tree().root.find_child("UI", true, false)
+		if ui and ui.has_method("trigger_illusory_mist"):
+			ui.trigger_illusory_mist(2.5)
+
+
+func _process_ginga_collision(_delta: float) -> void:
+	for node in get_tree().get_nodes_in_group("karts"):
+		if node == self or not (node is Kart):
+			continue
+		var other := node as Kart
+		var dist := ball.global_position.distance_to(other.ball.global_position)
+		if dist < 2.4:
+			var to_other: Vector3 = (other.ball.global_position - ball.global_position).normalized()
+			to_other.y = 0.2
+			# Curupira empurra o adversário para fora da linha sem perder o próprio embalo
+			other.ball.linear_velocity += to_other * 22.0
+			other.fwd_speed *= 0.75
+			if other.camera:
+				other.camera.add_trauma(0.4)
+			_squash_vel += 2.5
+
+
+func _process_serpent_strike_collision(_delta: float) -> void:
+	for node in get_tree().get_nodes_in_group("karts"):
+		if node == self or not (node is Kart):
+			continue
+		var other := node as Kart
+		var dist := ball.global_position.distance_to(other.ball.global_position)
+		if dist < 2.5:
+			var to_other: Vector3 = (other.ball.global_position - ball.global_position).normalized()
+			to_other.y = 0.35
+			# Boitatá não perde velocidade: o rival é jogado de lado com força e perde embalo
+			other.ball.linear_velocity += to_other * 28.0
+			other.fwd_speed *= 0.65
+			other.apply_damage_effect("serpent_strike", ball.global_position, 20.0)
+			if other.camera:
+				other.camera.add_trauma(0.55)
+			# Boitatá mantém o embalo do choque!
+			_squash_vel += 4.5
 
 
 func _process_barrier_repel(_delta: float) -> void:
@@ -709,8 +1154,251 @@ func _process_barrier_repel(_delta: float) -> void:
 func _setup_character() -> void:
 	if character_id == CharacterDataScript.ET_VARGINHA:
 		_setup_et_varginha()
+	elif character_id == CharacterDataScript.CURUPIRA:
+		_setup_curupira()
+	elif character_id == CharacterDataScript.CHUPACABRA:
+		_setup_chupacabra()
 	else:
 		_setup_boitata()
+
+
+func _setup_chupacabra() -> void:
+	# Metadados e atributos: Predador veloz com alta tração e resposta ágil
+	turn_speed = 3.6
+	turn_speed_high = 2.8
+	grip = 24.0
+	damage_max_cooldown = 12.0
+	barrier_max_cooldown = 10.0
+	ultimate_max_cooldown = 45.0
+
+	var driver_node := squash.get_node("Driver")
+	var leg_l := driver_node.get_node_or_null("LegL") as MeshInstance3D
+	var leg_r := driver_node.get_node_or_null("LegR") as MeshInstance3D
+	var visor := driver_node.get_node_or_null("Head/Visor")
+	if leg_l: leg_l.visible = true
+	if leg_r: leg_r.visible = true
+	if visor: visor.visible = false
+
+	# Materiais do Chupa-Cabra: Pele reptiliana/gárgula escura, espinhos e olhos de sangue
+	var mat_skin := StandardMaterial3D.new()
+	mat_skin.albedo_color = Color(0.24, 0.22, 0.28) # Tom cinza-arroxeado de couro predador
+	mat_skin.roughness = 0.72
+
+	var mat_spine := StandardMaterial3D.new()
+	mat_spine.albedo_color = Color(0.72, 0.12, 0.16) # Crista espinhal carmesim
+	mat_spine.roughness = 0.5
+	mat_spine.emission_enabled = true
+	mat_spine.emission = Color(0.65, 0.08, 0.12)
+	mat_spine.emission_energy_multiplier = 0.5
+
+	var mat_eye_red := StandardMaterial3D.new()
+	mat_eye_red.albedo_color = Color(1.0, 0.05, 0.05)
+	mat_eye_red.emission_enabled = true
+	mat_eye_red.emission = Color(1.0, 0.02, 0.02)
+	mat_eye_red.emission_energy_multiplier = 2.4
+
+	var mat_kart_wood := StandardMaterial3D.new()
+	mat_kart_wood.albedo_color = Color(0.18, 0.15, 0.14) # Madeira escura envelhecida
+	mat_kart_wood.roughness = 0.9
+
+	var mat_stripe_red := StandardMaterial3D.new()
+	mat_stripe_red.albedo_color = Color(0.85, 0.1, 0.15) # Faixa vermelha carmesim
+	mat_stripe_red.roughness = 0.5
+
+	var plank := squash.get_node("Plank") as MeshInstance3D
+	if plank: plank.set_surface_override_material(0, mat_kart_wood)
+
+	var stripe := squash.get_node("Stripe") as MeshInstance3D
+	if stripe: stripe.set_surface_override_material(0, mat_stripe_red)
+
+	var torso := driver_node.get_node("Torso") as MeshInstance3D
+	torso.set_surface_override_material(0, mat_skin)
+	torso.scale = Vector3(0.95, 0.95, 0.95)
+
+	if leg_l:
+		leg_l.set_surface_override_material(0, mat_skin)
+		leg_l.rotation = Vector3.ZERO
+	if leg_r:
+		leg_r.set_surface_override_material(0, mat_skin)
+		leg_r.rotation = Vector3.ZERO
+
+	var head := driver_node.get_node("Head") as MeshInstance3D
+	head.set_surface_override_material(0, mat_skin)
+	head.scale = Vector3(0.95, 0.9, 1.1) # Crânio levemente alongado para frente estilo predador
+
+	var old_custom = driver_node.get_node_or_null("CustomMeshRoot")
+	if old_custom:
+		old_custom.free()
+
+	var custom_root := Node3D.new()
+	custom_root.name = "CustomMeshRoot"
+	driver_node.add_child(custom_root)
+
+	# Olhos vermelhos brilhantes do Chupa-Cabra
+	for eye_x in [-0.09, 0.09]:
+		var eye := MeshInstance3D.new()
+		var em := SphereMesh.new()
+		em.radius = 0.045
+		em.height = 0.09
+		eye.mesh = em
+		eye.material_override = mat_eye_red
+		eye.position = Vector3(eye_x, 0.68, -0.22)
+		custom_root.add_child(eye)
+
+	var eye_light := OmniLight3D.new()
+	eye_light.light_color = Color(1.0, 0.15, 0.15)
+	eye_light.light_energy = 1.6
+	eye_light.omni_range = 3.2
+	eye_light.position = Vector3(0, 0.68, -0.26)
+	custom_root.add_child(eye_light)
+
+	# Crista de espinhos dorsais ao longo do pescoço e costas
+	var spine_positions := [
+		Vector3(0.0, 0.94, -0.05),
+		Vector3(0.0, 0.90, 0.10),
+		Vector3(0.0, 0.78, 0.22),
+		Vector3(0.0, 0.60, 0.28),
+		Vector3(0.0, 0.42, 0.32),
+		Vector3(0.0, 0.25, 0.35)
+	]
+	var spine_scales := [
+		Vector3(0.05, 0.16, 0.08),
+		Vector3(0.06, 0.20, 0.10),
+		Vector3(0.07, 0.22, 0.11),
+		Vector3(0.06, 0.18, 0.10),
+		Vector3(0.05, 0.14, 0.08),
+		Vector3(0.04, 0.11, 0.07)
+	]
+	for idx in spine_positions.size():
+		var spine := MeshInstance3D.new()
+		var sm := PrismMesh.new()
+		spine.mesh = sm
+		spine.material_override = mat_spine
+		spine.position = spine_positions[idx]
+		spine.scale = spine_scales[idx]
+		spine.rotation = Vector3(deg_to_rad(-25.0), 0, 0)
+		custom_root.add_child(spine)
+
+	# Fagulhas vermelhas nos rolamentos
+	for sp in _sparks:
+		sp.color = Color(0.9, 0.15, 0.15)
+
+	name_tag.text = "🩸 Chupa-Cabra · " + player_name
+	name_tag.modulate = Color(0.95, 0.25, 0.25)
+
+
+func _setup_curupira() -> void:
+	# Passiva: Pegadas Invertidas (maestria em curvas fechadas, alta tração e resposta imediata)
+	turn_speed = 3.8
+	turn_speed_high = 2.9
+	grip = 26.0
+	damage_max_cooldown = 13.0
+	barrier_max_cooldown = 10.0
+	ultimate_max_cooldown = 45.0
+
+	var driver_node := squash.get_node("Driver")
+	var leg_l := driver_node.get_node_or_null("LegL") as MeshInstance3D
+	var leg_r := driver_node.get_node_or_null("LegR") as MeshInstance3D
+	var visor := driver_node.get_node_or_null("Head/Visor")
+	if leg_l: leg_l.visible = true
+	if leg_r: leg_r.visible = true
+	if visor: visor.visible = false
+
+	# Materiais do Curupira: Pele bronzeada e cabelos de fogo flamejantes
+	var mat_skin := StandardMaterial3D.new()
+	mat_skin.albedo_color = Color(0.72, 0.44, 0.28) # Tom bronze indígena
+	mat_skin.roughness = 0.65
+
+	var mat_fire_hair := StandardMaterial3D.new()
+	mat_fire_hair.albedo_color = Color(0.98, 0.22, 0.04) # Cabelo vermelho flamejante
+	mat_fire_hair.emission_enabled = true
+	mat_fire_hair.emission = Color(0.95, 0.35, 0.05)
+	mat_fire_hair.emission_energy_multiplier = 1.3
+
+	var mat_forest_wood := StandardMaterial3D.new()
+	mat_forest_wood.albedo_color = Color(0.24, 0.16, 0.08) # Tronco rústico escuro da floresta
+	mat_forest_wood.roughness = 0.88
+
+	var mat_vine := StandardMaterial3D.new()
+	mat_vine.albedo_color = Color(0.18, 0.72, 0.28) # Verde folha / cipó
+	mat_vine.roughness = 0.55
+
+	var plank := squash.get_node("Plank") as MeshInstance3D
+	if plank: plank.set_surface_override_material(0, mat_forest_wood)
+
+	var stripe := squash.get_node("Stripe") as MeshInstance3D
+	if stripe: stripe.set_surface_override_material(0, mat_vine)
+
+	var torso := driver_node.get_node("Torso") as MeshInstance3D
+	torso.set_surface_override_material(0, mat_skin)
+	torso.scale = Vector3(0.9, 0.95, 0.9)
+
+	# Pés virados para trás (Pegadas Invertidas do Curupira!)
+	if leg_l:
+		leg_l.set_surface_override_material(0, mat_skin)
+		leg_l.rotation = Vector3(0, deg_to_rad(180.0), 0)
+	if leg_r:
+		leg_r.set_surface_override_material(0, mat_skin)
+		leg_r.rotation = Vector3(0, deg_to_rad(180.0), 0)
+
+	var head := driver_node.get_node("Head") as MeshInstance3D
+	head.set_surface_override_material(0, mat_skin)
+	head.scale = Vector3(1.0, 1.0, 1.0)
+
+	var old_custom = driver_node.get_node_or_null("CustomMeshRoot")
+	if old_custom:
+		old_custom.free()
+
+	var custom_root := Node3D.new()
+	custom_root.name = "CustomMeshRoot"
+	driver_node.add_child(custom_root)
+
+	# Cabelos de fogo pontiagudos do Curupira
+	var hair_positions := [
+		Vector3(0.0, 0.95, 0.02),
+		Vector3(-0.08, 0.92, 0.06),
+		Vector3(0.08, 0.92, 0.06),
+		Vector3(0.0, 0.88, 0.12),
+		Vector3(-0.06, 0.86, -0.04),
+		Vector3(0.06, 0.86, -0.04)
+	]
+	var hair_scales := [
+		Vector3(0.12, 0.24, 0.12),
+		Vector3(0.10, 0.19, 0.10),
+		Vector3(0.10, 0.19, 0.10),
+		Vector3(0.11, 0.18, 0.11),
+		Vector3(0.09, 0.16, 0.09),
+		Vector3(0.09, 0.16, 0.09)
+	]
+	for idx in hair_positions.size():
+		var tuft := MeshInstance3D.new()
+		var tm := BoxMesh.new()
+		tuft.mesh = tm
+		tuft.material_override = mat_fire_hair
+		tuft.position = hair_positions[idx]
+		tuft.scale = hair_scales[idx]
+		tuft.rotation = Vector3(deg_to_rad(-15.0), 0, randf_range(-0.15, 0.15))
+		custom_root.add_child(tuft)
+
+	# Olhos atentos do guardião
+	var mat_eye := StandardMaterial3D.new()
+	mat_eye.albedo_color = Color(0.1, 0.1, 0.1)
+	for eye_x in [-0.1, 0.1]:
+		var eye := MeshInstance3D.new()
+		var em := SphereMesh.new()
+		em.radius = 0.04
+		em.height = 0.08
+		eye.mesh = em
+		eye.material_override = mat_eye
+		eye.position = Vector3(eye_x, 0.68, -0.19)
+		custom_root.add_child(eye)
+
+	# Faíscas de folhas e mata verde nos rolamentos
+	for sp in _sparks:
+		sp.color = Color(0.2, 0.85, 0.35)
+
+	name_tag.text = "🍃 Curupira · " + player_name
+	name_tag.modulate = Color(0.25, 0.95, 0.45)
 
 
 func _setup_boitata() -> void:
@@ -718,6 +1406,9 @@ func _setup_boitata() -> void:
 	push_acceleration = 16.0
 	uphill_gravity_drag = 16.0
 	grip = 15.5
+	damage_max_cooldown = 13.0
+	barrier_max_cooldown = 12.0
+	ultimate_max_cooldown = 25.0
 
 	# Boitatá fiel ao folclore: A Grande Cobra/Serpente de Fogo Ancestral
 	var driver_node := squash.get_node("Driver")
@@ -840,6 +1531,9 @@ func _setup_et_varginha() -> void:
 	landing_speed_penalty = 0.0
 	air_drag = 0.06
 	air_turn_factor = 0.70
+	damage_max_cooldown = 12.0
+	barrier_max_cooldown = 14.0
+	ultimate_max_cooldown = 26.0
 	if ball:
 		ball.gravity_scale = 1.85
 
@@ -851,7 +1545,7 @@ func _setup_et_varginha() -> void:
 	if leg_r: leg_r.visible = true
 	if visor: visor.visible = false
 
-	# ET Padrão dos Filmes: O Clássico "Grey Alien" (Pele cinza suave perolada)
+	# ET de Varginha e o Clássico "Grey Alien" (Pele cinza suave perolada)
 	var mat_grey := StandardMaterial3D.new()
 	mat_grey.albedo_color = Color(0.72, 0.75, 0.78) # Cinza clássico alienígena
 	mat_grey.roughness = 0.35
@@ -908,6 +1602,21 @@ func _setup_et_varginha() -> void:
 	bulb.scale = Vector3(1.25, 0.9, 1.15)
 	custom_root.add_child(bulb)
 
+	# Os 3 calombos ufológicos na cabeça do ET de Varginha
+	var calombos_z := [-0.07, 0.03, 0.13]
+	var calombos_y := [0.94, 0.98, 0.93]
+	var calombos_r := [0.08, 0.095, 0.08]
+	for idx in 3:
+		var calombo := MeshInstance3D.new()
+		var cm := SphereMesh.new()
+		cm.radius = calombos_r[idx]
+		cm.height = calombos_r[idx] * 2.0
+		calombo.mesh = cm
+		calombo.material_override = mat_grey
+		calombo.position = Vector3(0, calombos_y[idx], calombos_z[idx])
+		calombo.scale = Vector3(1.15, 0.85, 1.15)
+		custom_root.add_child(calombo)
+
 	# GIGANTESCOS OLHOS NEGROS AMENDOADOS OBLÍQUOS DOS FILMES
 	for eye_x in [-0.14, 0.14]:
 		var eye := MeshInstance3D.new()
@@ -933,7 +1642,7 @@ func _setup_et_varginha() -> void:
 	for sp in _sparks:
 		sp.color = Color(0.25, 0.95, 0.8)
 
-	name_tag.text = "🛸 ET Clássico · " + player_name
+	name_tag.text = "🛸 ET de Varginha · " + player_name
 	name_tag.modulate = Color(0.4, 0.9, 1.0)
 
 
@@ -1021,6 +1730,77 @@ func _build_shields() -> void:
 	psi_light.omni_range = 6.5
 	_psi_shield_node.add_child(psi_light)
 
+	# 3. Propulsor Antigravitacional do ET de Varginha (dispositivo alienígena soldado no chassi)
+	_antigrav_thruster_node = Node3D.new()
+	_antigrav_thruster_node.name = "AntigravThruster"
+	squash.add_child(_antigrav_thruster_node)
+
+	var thruster_mesh := MeshInstance3D.new()
+	var nozzle_cyl := CylinderMesh.new()
+	nozzle_cyl.top_radius = 0.11
+	nozzle_cyl.bottom_radius = 0.16
+	nozzle_cyl.height = 0.2
+	thruster_mesh.mesh = nozzle_cyl
+	var mat_copper := StandardMaterial3D.new()
+	mat_copper.albedo_color = Color(0.78, 0.52, 0.25)
+	mat_copper.metallic = 0.85
+	thruster_mesh.material_override = mat_copper
+	thruster_mesh.position = Vector3(0, -0.04, 0.46)
+	thruster_mesh.rotation = Vector3(deg_to_rad(28.0), 0, 0)
+	_antigrav_thruster_node.add_child(thruster_mesh)
+
+	var glow_ring := MeshInstance3D.new()
+	var t_m := TorusMesh.new()
+	t_m.inner_radius = 0.14
+	t_m.outer_radius = 0.20
+	var mat_cyan := StandardMaterial3D.new()
+	mat_cyan.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat_cyan.albedo_color = Color(0.25, 0.9, 1.0)
+	glow_ring.mesh = t_m
+	glow_ring.material_override = mat_cyan
+	glow_ring.position = Vector3(0, -0.11, 0.46)
+	glow_ring.rotation = Vector3(deg_to_rad(90.0), 0, 0)
+	_antigrav_thruster_node.add_child(glow_ring)
+
+	var t_light := OmniLight3D.new()
+	t_light.name = "ThrusterLight"
+	t_light.light_color = Color(0.2, 0.85, 1.0)
+	t_light.light_energy = 0.0
+	t_light.omni_range = 5.0
+	t_light.position = Vector3(0, -0.15, 0.46)
+	_antigrav_thruster_node.add_child(t_light)
+
+	var t_part := CPUParticles3D.new()
+	t_part.name = "ThrusterParticles"
+	t_part.emitting = false
+	t_part.amount = 26
+	t_part.lifetime = 0.25
+	var p_b := BoxMesh.new()
+	p_b.size = Vector3(0.06, 0.06, 0.06)
+	var p_m := StandardMaterial3D.new()
+	p_m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	p_m.vertex_color_use_as_albedo = true
+	p_b.material = p_m
+	t_part.mesh = p_b
+	t_part.direction = Vector3(0, -1, 0.4)
+	t_part.spread = 20.0
+	t_part.initial_velocity_min = 3.5
+	t_part.initial_velocity_max = 7.0
+	t_part.color = Color(0.3, 0.95, 1.0)
+	t_part.position = Vector3(0, -0.14, 0.46)
+	_antigrav_thruster_node.add_child(t_part)
+
+
+func _set_antigrav_thruster_active(active: bool) -> void:
+	if not _antigrav_thruster_node:
+		return
+	var t_light := _antigrav_thruster_node.get_node_or_null("ThrusterLight") as OmniLight3D
+	if t_light:
+		t_light.light_energy = 4.2 if active else 0.0
+	var t_part := _antigrav_thruster_node.get_node_or_null("ThrusterParticles") as CPUParticles3D
+	if t_part:
+		t_part.emitting = active
+
 
 func _set_shield_active(active: bool) -> void:
 	if character_id == CharacterDataScript.ET_VARGINHA:
@@ -1036,6 +1816,9 @@ func _set_shield_active(active: bool) -> void:
 
 
 func _update_barrier_visual(delta: float) -> void:
+	if _antigrav_thruster_node and is_antigrav_active():
+		var t_pulse := 1.0 + 0.08 * sin(Time.get_ticks_msec() * 0.02)
+		_antigrav_thruster_node.scale = Vector3(t_pulse, t_pulse, t_pulse)
 	if not is_barrier_active():
 		return
 	if _fire_shield_node and _fire_shield_node.visible:
@@ -1061,9 +1844,503 @@ func _rpc_cast_damage(spawn_pt: Vector3, dir: Vector3) -> void:
 
 
 @rpc("call_local", "reliable")
+func _rpc_activate_antigrav() -> void:
+	antigrav_time_left = 3.0
+	_overheat_skid_timer = 0.0
+	_set_antigrav_thruster_active(true)
+	if is_local() and camera:
+		camera.add_trauma(0.18)
+	if is_local():
+		var ui = get_tree().root.find_child("UI", true, false)
+		if ui and ui.has_method("notify_antigrav_thruster"):
+			ui.notify_antigrav_thruster()
+
+
+@rpc("call_local", "reliable")
 func _rpc_activate_barrier() -> void:
 	barrier_time_left = barrier_active_duration
 	_set_shield_active(true)
 	if is_local() and camera:
 		camera.add_trauma(0.12)
 
+
+@rpc("call_local", "reliable")
+func _rpc_activate_flame_trail() -> void:
+	flame_trail_time_left = 2.5
+	if is_local() and camera:
+		camera.add_trauma(0.18)
+
+
+@rpc("call_local", "reliable")
+func _rpc_activate_serpent_strike() -> void:
+	serpent_strike_time_left = 1.5
+	_squash_vel += 6.5
+	if is_local() and camera:
+		camera.add_trauma(0.32)
+
+
+@rpc("call_local", "reliable")
+func _rpc_spawn_flame_trail_patch(pos: Vector3, caster_id: int) -> void:
+	var patch: Node3D = FLAME_TRAIL_PATCH_SCRIPT.new()
+	get_tree().current_scene.add_child(patch)
+	patch.setup(pos, caster_id)
+
+
+@rpc("call_local", "reliable")
+func _rpc_cast_ultimate(caster_pos: Vector3, caster_h: float) -> void:
+	if character_id == CharacterDataScript.BOITATA:
+		_cast_boitata_ultimate(caster_pos, caster_h)
+	elif character_id == CharacterDataScript.CURUPIRA:
+		_cast_curupira_ultimate(caster_pos, caster_h)
+	elif character_id == CharacterDataScript.CHUPACABRA:
+		_cast_chupacabra_ultimate(caster_pos, caster_h)
+	else:
+		_cast_et_ultimate(caster_pos, caster_h)
+
+
+func _cast_boitata_ultimate(caster_pos: Vector3, _h: float) -> void:
+	# Flash de luz solar radiante dos Olhos de Brasas do Boitatá
+	var flash_light := OmniLight3D.new()
+	flash_light.light_color = Color(1.0, 0.65, 0.15)
+	flash_light.light_energy = 8.0
+	flash_light.omni_range = 28.0
+	flash_light.position = caster_pos + Vector3.UP * 0.8
+	get_tree().current_scene.add_child(flash_light)
+
+	var tween := flash_light.create_tween()
+	tween.tween_property(flash_light, "light_energy", 0.0, 1.5)
+	tween.tween_callback(flash_light.queue_free)
+
+	# Efeito nos outros karts
+	for node in get_tree().get_nodes_in_group("karts"):
+		if node == self or not (node is Kart):
+			continue
+		var other := node as Kart
+		var dist := caster_pos.distance_to(other.ball.global_position)
+		if dist <= 42.0:
+			var to_caster: Vector3 = (caster_pos - other.ball.global_position).normalized()
+			var rival_fwd := Vector3(-sin(other.heading), 0.0, -cos(other.heading))
+			var dot_fwd: float = to_caster.dot(rival_fwd)
+			# Quem estiver olhando na direção do Boitatá a até distância média (ou colado a até 14m)
+			if dot_fwd > -0.28 or dist <= 14.0:
+				other.apply_blinding_flash()
+
+	if is_local() and camera:
+		camera.add_trauma(0.3)
+
+
+func _cast_et_ultimate(caster_pos: Vector3, caster_h: float) -> void:
+	# Ultimate [R] — Abdução Espacial (Luz de Nave)
+	# Projeta um holofote cilíndrico de luz azulada que varre uma área da pista à frente do ET por 3,5 segundos
+	var fwd_dir := Vector3(-sin(caster_h), 0.0, -cos(caster_h)).normalized()
+	var spawn_pos := caster_pos + fwd_dir * 18.0
+
+	var beam: Node3D = ABDUCTION_BEAM_SCRIPT.new()
+	get_tree().current_scene.add_child(beam)
+	beam.setup(spawn_pos, fwd_dir, peer_id)
+
+	# Túnel de Vácuo Alienígena: o ET recebe bônus violento de aceleração contínua
+	abduction_vacuum_time_left = 3.5
+
+	if is_local() and camera:
+		camera.add_trauma(0.35)
+	if is_local():
+		var ui = get_tree().root.find_child("UI", true, false)
+		if ui and ui.has_method("notify_abduction_cast"):
+			ui.notify_abduction_cast()
+
+
+# =========================================================== HABILIDADES DO CURUPIRA
+
+func _update_curupira_passive(_delta: float) -> void:
+	# Passiva: Pegadas Invertidas - maestria nas curvas da mata
+	pass
+
+
+@rpc("call_local", "reliable")
+func _rpc_cast_curupira_q() -> void:
+	# Habilidade 1 [Q]: Tora de Arapuca
+	# Solta uma tora maciça imediatamente atrás do kart
+	var up_vec := ground_normal if grounded else Vector3.UP
+	var fwd_f := Vector3(-sin(heading), 0.0, -cos(heading))
+	var drop_pos: Vector3 = ball.global_position - fwd_f * 2.0 + up_vec * 0.1
+	_rpc_spawn_trap_log.rpc(drop_pos, heading, peer_id)
+	if is_local() and camera:
+		camera.add_trauma(0.18)
+	if is_local():
+		var ui = get_tree().root.find_child("UI", true, false)
+		if ui and ui.has_method("notify_curupira_trap_drop"):
+			ui.notify_curupira_trap_drop()
+
+
+@rpc("call_local", "reliable")
+func _rpc_spawn_trap_log(pos: Vector3, spawn_h: float, caster_id: int) -> void:
+	var log_node: Node3D = TRAP_LOG_SCRIPT.new()
+	get_tree().current_scene.add_child(log_node)
+	log_node.setup(pos, spawn_h, caster_id)
+
+
+@rpc("call_local", "reliable")
+func _rpc_activate_curupira_e() -> void:
+	# Habilidade 2 [E]: Ginga da Mata (Curva Impossível)
+	curupira_ginga_time_left = 2.5
+	_squash_vel += 4.5
+	if is_local() and camera:
+		camera.add_trauma(0.2)
+	if is_local():
+		var ui = get_tree().root.find_child("UI", true, false)
+		if ui and ui.has_method("notify_curupira_ginga"):
+			ui.notify_curupira_ginga()
+
+
+func _cast_curupira_ultimate(caster_pos: Vector3, caster_h: float) -> void:
+	# Ultimate [R]: Assobio Ilusório (Pânico na Trilha)
+	# Auto-Buff do Curupira: +30% de aceleração contínua por 3 segundos
+	curupira_boost_time_left = 3.0
+	curupira_whistle_time_left = 2.5
+
+	if is_local() and camera:
+		camera.add_trauma(0.25)
+	if is_local():
+		var ui = get_tree().root.find_child("UI", true, false)
+		if ui and ui.has_method("notify_curupira_whistle_cast"):
+			ui.notify_curupira_whistle_cast()
+
+	# Aviso de 0.3s antes de aplicar o efeito aos rivais
+	await get_tree().create_timer(0.3).timeout
+
+	var fwd_dir := Vector3(-sin(caster_h), 0.0, -cos(caster_h)).normalized()
+	for node in get_tree().get_nodes_in_group("karts"):
+		if node == self or not (node is Kart):
+			continue
+		var other := node as Kart
+		var to_other: Vector3 = other.ball.global_position - caster_pos
+		var dist := to_other.length()
+		if dist <= 38.0:
+			var dot_fwd: float = fwd_dir.dot(to_other.normalized())
+			# Afeta todos os oponentes em um raio médio ao redor e à frente dele
+			if dot_fwd > -0.35 or dist <= 12.0:
+				other.apply_illusory_whistle()
+
+
+func _exit_tree() -> void:
+	if is_instance_valid(_chupa_tether_instance):
+		_chupa_tether_instance.queue_free()
+		_chupa_tether_instance = null
+
+
+# =========================================================== HABILIDADES DO CHUPA-CABRA
+
+func _update_chupacabra_passive(_delta: float) -> void:
+	# 1. PASSIVA: Sede de Embalo
+	# O cone de vácuo (slipstream) atrás de outros karts é 50% maior em largura e alcance.
+	chupa_in_slipstream = false
+	if not is_local():
+		return
+	var my_pos := ball.global_position
+	var my_fwd := Vector3(-sin(heading), 0.0, -cos(heading)).normalized()
+
+	for node in get_tree().get_nodes_in_group("karts"):
+		if node == self or not (node is Kart):
+			continue
+		var other := node as Kart
+		var to_other := other.ball.global_position - my_pos
+		var dist := to_other.length()
+		# Cone de alcance ampliado em 50%: até 26 metros de distância
+		if dist < 2.0 or dist > 26.0:
+			continue
+
+		var to_other_dir := to_other.normalized()
+		# O Chupa-Cabra deve estar mirando na direção geral do oponente à frente
+		if my_fwd.dot(to_other_dir) < 0.58:
+			continue
+
+		# O Chupa-Cabra deve estar posicionado no cone de esteira/vácuo ATRÁS do rival
+		var other_fwd := Vector3(-sin(other.heading), 0.0, -cos(other.heading)).normalized()
+		var from_other_to_me := (my_pos - other.ball.global_position).normalized()
+		# Ângulo do cone 50% mais largo atrás da traseira do rival (dot com other_fwd < -0.42)
+		if other_fwd.dot(from_other_to_me) < -0.42:
+			chupa_in_slipstream = true
+			break
+
+
+func _cast_chupacabra_q() -> void:
+	# 2. HABILIDADE [Q]: Mordida no Eixo
+	# Ataque frontal corpo a corpo que atinge o oponente imediatamente à frente (raio de 3 a 4 metros).
+	var my_pos := ball.global_position
+	var my_fwd := Vector3(-sin(heading), 0.0, -cos(heading)).normalized()
+	var hit_target: Kart = null
+	var min_dist := 999.0
+
+	for node in get_tree().get_nodes_in_group("karts"):
+		if node == self or not (node is Kart):
+			continue
+		var other := node as Kart
+		var to_other := other.ball.global_position - my_pos
+		var dist := to_other.length()
+		# Cone frontal curto: raio de 3 a 4 metros (3.8m)
+		if dist <= 3.8:
+			var dot_fwd := my_fwd.dot(to_other.normalized())
+			if dot_fwd > 0.52 and dist < min_dist:
+				min_dist = dist
+				hit_target = other
+
+	if hit_target != null:
+		# Acertou! Aplica no alvo penalidade imediata de -40% de velocidade e superaquecimento de 2.5s
+		_rpc_axle_bite_hit.rpc(hit_target.peer_id, ball.global_position)
+		_squash_vel += 5.0
+		if camera:
+			camera.add_trauma(0.35)
+		var ui = get_tree().root.find_child("UI", true, false)
+		if ui and ui.has_method("notify_chupa_bite_success"):
+			ui.notify_chupa_bite_success()
+	else:
+		# Errou o golpe no ar: perde 8% da sua velocidade atual como recuo
+		fwd_speed *= 0.92
+		_squash_vel -= 3.5
+		if camera:
+			camera.add_trauma(0.18)
+		var ui = get_tree().root.find_child("UI", true, false)
+		if ui and ui.has_method("notify_chupa_bite_miss"):
+			ui.notify_chupa_bite_miss()
+
+
+@rpc("call_local", "reliable")
+func _rpc_axle_bite_hit(target_peer_id: int, caster_pos: Vector3) -> void:
+	for node in get_tree().get_nodes_in_group("karts"):
+		if not (node is Kart):
+			continue
+		var k := node as Kart
+		if k.peer_id == target_peer_id:
+			k.apply_axle_bite_hit(caster_pos)
+			break
+
+
+func apply_axle_bite_hit(caster_pos: Vector3) -> void:
+	if is_barrier_active() or is_serpent_strike_active() or is_chupacabra_e_active():
+		return
+	# Penalidade imediata de -40% de velocidade
+	fwd_speed *= 0.60
+	# Superaquecimento temporário das rodas por 2.5s (patina e perde aceleração)
+	_overheat_skid_timer = 2.5
+	_squash_vel -= 7.0
+	_roll_vel += randf_range(-4.0, 4.0)
+
+	# Efeito de tranco físico e faíscas/dentes
+	var side_push := (ball.global_position - caster_pos).normalized()
+	side_push.y = 0.25
+	ball.linear_velocity += side_push * 6.5
+	_spawn_bite_fx(ball.global_position)
+
+	if camera:
+		camera.add_trauma(0.55)
+	if is_local():
+		var ui = get_tree().root.find_child("UI", true, false)
+		if ui and ui.has_method("notify_axle_bite_received"):
+			ui.notify_axle_bite_received()
+
+
+func _spawn_bite_fx(hit_pos: Vector3) -> void:
+	var flash := OmniLight3D.new()
+	flash.light_color = Color(1.0, 0.08, 0.15)
+	flash.light_energy = 5.0
+	flash.omni_range = 6.0
+	flash.position = hit_pos + Vector3.UP * 0.4
+	get_tree().current_scene.add_child(flash)
+
+	var parts := CPUParticles3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(0.12, 0.12, 0.12)
+	parts.mesh = bm
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = Color(1.0, 0.1, 0.15)
+	parts.material_override = mat
+	parts.amount = 16
+	parts.lifetime = 0.5
+	parts.one_shot = true
+	parts.explosiveness = 0.95
+	parts.spread = 180.0
+	parts.initial_velocity_min = 4.0
+	parts.initial_velocity_max = 8.0
+	parts.position = hit_pos + Vector3.UP * 0.4
+	get_tree().current_scene.add_child(parts)
+	parts.emitting = true
+
+	var tw := flash.create_tween()
+	tw.tween_property(flash, "light_energy", 0.0, 0.45)
+	tw.parallel().tween_interval(0.6)
+	tw.tween_callback(func():
+		if is_instance_valid(flash): flash.queue_free()
+		if is_instance_valid(parts): parts.queue_free()
+	)
+
+
+func _cast_chupacabra_e() -> void:
+	# 3. HABILIDADE [E]: Bote Noturno
+	# Salto rasante para a frente acompanhando o ângulo da ladeira (1.2s de impulso sem atrito).
+	_chupa_was_in_bote = true
+	chupa_bote_time_left = 1.2
+	var up_vec := ground_normal if grounded else Vector3.UP
+	var fwd_f := Vector3(-sin(heading), 0.0, -cos(heading)).normalized()
+
+	ball.linear_velocity += fwd_f * 12.0 + up_vec * 3.6
+	fwd_speed += 10.0
+	_squash_vel += 6.5
+	grounded = false
+	hop_lock = 0.35
+	_rpc_activate_chupa_e.rpc()
+
+	if camera:
+		camera.add_trauma(0.22)
+	var ui = get_tree().root.find_child("UI", true, false)
+	if ui and ui.has_method("notify_chupa_bote"):
+		ui.notify_chupa_bote()
+
+
+@rpc("call_local", "reliable")
+func _rpc_activate_chupa_e() -> void:
+	chupa_bote_time_left = 1.2
+	_squash_vel += 6.0
+	_overheat_skid_timer = 0.0
+
+
+func _on_chupa_bote_land() -> void:
+	# Ao aterrissar alinhado à pista, ganha boost temporário de tração/embalo
+	var pitch_roll_ok := absf(_pitch) < 0.38 and absf(_roll) < 0.38
+	if pitch_roll_ok:
+		chupa_land_boost_time_left = 1.5
+		_squash_vel -= 3.0
+		if is_local():
+			var ui = get_tree().root.find_child("UI", true, false)
+			if ui and ui.has_method("notify_chupa_land_boost"):
+				ui.notify_chupa_land_boost()
+
+
+func _cast_chupacabra_ultimate(caster_pos: Vector3, caster_h: float) -> void:
+	# 4. ULTIMATE [R]: Drenagem Espinhal
+	# Localiza o oponente mais próximo à frente em um raio de até 25 metros e cria o vínculo (tether).
+	var my_fwd := Vector3(-sin(caster_h), 0.0, -cos(caster_h)).normalized()
+	var candidate: Kart = null
+	var min_dist := 999.0
+
+	for node in get_tree().get_nodes_in_group("karts"):
+		if node == self or not (node is Kart):
+			continue
+		var other := node as Kart
+		var to_other := other.ball.global_position - caster_pos
+		var dist := to_other.length()
+		if dist <= 25.0:
+			var dot_fwd := my_fwd.dot(to_other.normalized())
+			if dot_fwd > 0.20 and dist < min_dist:
+				min_dist = dist
+				candidate = other
+
+	if candidate != null:
+		_rpc_tether_start.rpc(peer_id, candidate.peer_id)
+	else:
+		if is_local():
+			var ui = get_tree().root.find_child("UI", true, false)
+			if ui and ui.has_method("notify_chupa_tether_broken"):
+				ui.notify_chupa_tether_broken("SEM ALVO NO ALCANCE")
+			ultimate_cooldown = 4.0 # Não consome todo o cooldown se errar sem nenhum alvo no raio
+
+
+@rpc("call_local", "reliable")
+func _rpc_tether_start(caster_peer_id: int, target_peer_id: int) -> void:
+	var caster_kart: Kart = null
+	var target_kart: Kart = null
+	for node in get_tree().get_nodes_in_group("karts"):
+		if not (node is Kart):
+			continue
+		var k := node as Kart
+		if k.peer_id == caster_peer_id:
+			caster_kart = k
+		elif k.peer_id == target_peer_id:
+			target_kart = k
+
+	if caster_kart and target_kart:
+		if is_instance_valid(caster_kart._chupa_tether_instance):
+			caster_kart._chupa_tether_instance.queue_free()
+
+		var tether: Node3D = SPINAL_TETHER_SCRIPT.new()
+		get_tree().current_scene.add_child(tether)
+		tether.setup(caster_kart, target_kart)
+		caster_kart._chupa_tether_instance = tether
+		caster_kart._chupa_tether_target = target_kart
+		caster_kart.chupa_drain_time_left = 4.0
+		caster_kart._tether_los_blocked_timer = 0.0
+
+		if caster_kart.is_local():
+			var ui = get_tree().root.find_child("UI", true, false)
+			if ui and ui.has_method("notify_chupa_tether_started"):
+				ui.notify_chupa_tether_started()
+			if caster_kart.camera:
+				caster_kart.camera.add_trauma(0.35)
+
+
+@rpc("call_local", "reliable")
+func _rpc_tether_end(caster_peer_id: int, _target_peer_id: int, reason: String) -> void:
+	for node in get_tree().get_nodes_in_group("karts"):
+		if not (node is Kart):
+			continue
+		var k := node as Kart
+		if k.peer_id == caster_peer_id:
+			if is_instance_valid(k._chupa_tether_instance):
+				if k._chupa_tether_instance.has_method("break_tether"):
+					k._chupa_tether_instance.break_tether()
+				else:
+					k._chupa_tether_instance.queue_free()
+				k._chupa_tether_instance = null
+			k.chupa_drain_time_left = 0.0
+			k._chupa_tether_target = null
+			if k.is_local():
+				var ui = get_tree().root.find_child("UI", true, false)
+				if ui and ui.has_method("notify_chupa_tether_broken"):
+					ui.notify_chupa_tether_broken(reason)
+			break
+
+
+func _process_chupa_tether_drain(delta: float) -> void:
+	if _chupa_tether_target == null or not is_instance_valid(_chupa_tether_target):
+		_rpc_tether_end.rpc(peer_id, -1, "alvo desconectado")
+		return
+
+	var my_pos := ball.global_position
+	var target_pos := _chupa_tether_target.ball.global_position
+	var dist := my_pos.distance_to(target_pos)
+
+	# Condição de quebra 1: Se o alvo abrir mais de 35 metros de distância
+	if dist > 35.0:
+		_rpc_tether_end.rpc(peer_id, _chupa_tether_target.peer_id, "distância máxima")
+		return
+
+	# Condição de quebra 2: Tempo expirou
+	if chupa_drain_time_left <= 0.0:
+		_rpc_tether_end.rpc(peer_id, _chupa_tether_target.peer_id, "concluído")
+		return
+
+	# Condição de quebra 3: Linha de visada cortada por obstáculo grande / curva fechada
+	var space := get_world_3d().direct_space_state
+	if space:
+		var query := PhysicsRayQueryParameters3D.create(my_pos + Vector3.UP * 0.5, target_pos + Vector3.UP * 0.5)
+		query.exclude = [ball, _chupa_tether_target.ball]
+		var hit := space.intersect_ray(query)
+		if not hit.is_empty():
+			var col = hit.get("collider")
+			if col and not (col is RigidBody3D and col.get_parent() is Kart):
+				_tether_los_blocked_timer += delta
+				if _tether_los_blocked_timer > 0.4:
+					_rpc_tether_end.rpc(peer_id, _chupa_tether_target.peer_id, "visão bloqueada")
+					return
+		else:
+			_tether_los_blocked_timer = maxf(_tether_los_blocked_timer - delta * 2.0, 0.0)
+
+	# Drenagem contínua:
+	# O alvo perde velocidade de descida a uma taxa aproximada de 8% por segundo
+	var drain_fraction := 0.08 * delta
+	var target_loss := _chupa_tether_target.fwd_speed * drain_fraction
+	_chupa_tether_target.fwd_speed = maxf(_chupa_tether_target.fwd_speed - target_loss, 0.0)
+
+	# O Chupa-Cabra absorve esse valor para seu próprio vetor de aceleração
+	fwd_speed = minf(fwd_speed + (target_loss * 1.6 + 12.0 * delta), max_downhill_speed + 14.0)
