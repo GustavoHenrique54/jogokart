@@ -32,6 +32,8 @@ func _ready() -> void:
 	if Net.wants_dedicated_server():
 		ui.visible = false
 		Net.host(Net.cmdline_port(), true)
+	elif "--bake-editor-scene" in OS.get_cmdline_user_args() or "--bake-editor-scene" in OS.get_cmdline_args():
+		_bake_editor_scene()
 	elif "--practice" in OS.get_cmdline_user_args() or "--practice" in OS.get_cmdline_args():
 		Net.start_offline()
 
@@ -71,4 +73,30 @@ func _spawn_kart(data: Variant) -> Node:
 	k.spawn_pos = sp["pos"]
 	k.spawn_heading = sp["heading"]
 	return k
+
+
+func _bake_editor_scene() -> void:
+	world._ensure_editor_nodes()
+	world.reset_default_curve()
+	world._apply_editor_perf_settings()
+	var sc := world.get_node_or_null("Scenery")
+	if sc:
+		for c in sc.get_children():
+			c.free()
+	var gen := world.get_node_or_null("GeneratedTrack")
+	if gen:
+		gen.free()
+	for child_name in ["WorldEnvironment", "Sun", "TrackPath", "TrackZones", "Scenery"]:
+		var n := world.get_node_or_null(child_name)
+		if n:
+			n.owner = self
+			for sub in n.get_children():
+				sub.owner = self
+				for sub2 in sub.get_children():
+					sub2.owner = self
+	var out := PackedScene.new()
+	out.pack(self)
+	ResourceSaver.save(out, "res://scenes/main.tscn")
+	print("[Main] CENA SALVA LEVE E OTIMIZADA!")
+	get_tree().quit(0)
 
