@@ -7,3 +7,7 @@ build/windows/
 
 # Ferramentas locais
 tools/cloudflared.exe
+
+# Arquivos compactados e PDFs redundantes na pasta Assets
+Assets/*.zip
+Assets/**/*.pdf
