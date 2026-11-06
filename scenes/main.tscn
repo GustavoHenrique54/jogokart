@@ -52,9 +52,11 @@ shadow_enabled = true
 directional_shadow_max_distance = 95.0
 
 [node name="TrackPath" type="Path3D" parent="World" unique_id=1761380485]
+visible = false
 curve = SubResource("Curve3D_o6xl0")
 
 [node name="TrackZones" type="Node3D" parent="World" unique_id=1675941029]
+visible = false
 
 [node name="DecliveForte_Dir_01" type="Node3D" parent="World/TrackZones" unique_id=1261473233]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -165, -34.80321, -18)
@@ -93,9 +95,12 @@ zone_length = 22.0
 [node name="Scenery" type="Node3D" parent="World" unique_id=1236939001]
 
 [node name="Karts" type="Node3D" parent="." unique_id=1378077761]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -424.67432, 4.6086426, 522.8021)
 
 [node name="KartSpawner" type="MultiplayerSpawner" parent="." unique_id=1363953190]
 spawn_path = NodePath("../Karts")
 
 [node name="UI" type="CanvasLayer" parent="." unique_id=85787560]
+process_mode = 3
+layer = 10
 script = ExtResource("3_ui")

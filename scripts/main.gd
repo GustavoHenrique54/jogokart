@@ -119,7 +119,7 @@ func _spawn_kart(data: Variant) -> Node:
 
 func _bake_editor_scene() -> void:
 	world._ensure_editor_nodes()
-	world.reset_default_curve()
+	world.rebuild_track()
 	world._apply_editor_perf_settings()
 	var sc := world.get_node_or_null("Scenery")
 	if sc:
